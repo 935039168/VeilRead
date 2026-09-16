@@ -23,3 +23,7 @@ test('public site audit reports broken local links', (t) => {
   fs.appendFileSync(home, '<a href="./missing-page/">broken</a>');
   assert.match(auditPublicSite(fixture).join('\n'), /site\/index\.html: broken local link \.\/missing-page\//);
 });
+test('store documents cover listings, permissions, privacy, and reviewer guidance', () => {
+  const { auditStoreDocuments } = require('../../tools/release/audit.js');
+  assert.deepEqual(auditStoreDocuments(root), []);
+});

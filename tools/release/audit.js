@@ -107,4 +107,71 @@ function auditPublicSite(root) {
   return errors;
 }
 
-module.exports = { auditManifestAndLocales, auditPublicSite };
+function auditStoreDocuments(root) {
+  const errors = [];
+  const files = [
+    'store/README.md',
+    'store/listing/chrome-zh-CN.md',
+    'store/listing/chrome-en.md',
+    'store/listing/edge-zh-CN.md',
+    'store/listing/edge-en.md',
+    'store/compliance/permissions-zh-CN.md',
+    'store/compliance/permissions-en.md',
+    'store/compliance/privacy-questionnaire-zh-CN.md',
+    'store/compliance/privacy-questionnaire-en.md',
+    'store/review/chrome-notes-zh-CN.md',
+    'store/review/chrome-notes-en.md',
+    'store/review/edge-notes-zh-CN.md',
+    'store/review/edge-notes-en.md',
+    'store/release-checklist.md',
+  ];
+  const contents = new Map();
+  for (const relative of files) {
+    const file = path.join(root, relative);
+    if (!fs.existsSync(file)) {
+      errors.push(`${relative}: missing store document`);
+      continue;
+    }
+    contents.set(relative, fs.readFileSync(file, 'utf8'));
+  }
+
+  const { permissionKeys, publicUrls } = require('./config.js');
+  for (const relative of ['store/compliance/permissions-zh-CN.md', 'store/compliance/permissions-en.md']) {
+    const text = contents.get(relative);
+    if (!text) continue;
+    for (const permission of permissionKeys) {
+      if (!text.includes(`\`${permission}\``)) errors.push(`${relative}: missing permission ${permission}`);
+    }
+  }
+
+  for (const relative of files.filter((item) => /listing|privacy-questionnaire|review/.test(item))) {
+    const text = contents.get(relative);
+    if (!text) continue;
+    const english = relative.endsWith('-en.md');
+    const privacy = english ? publicUrls.privacyEn : publicUrls.privacyZh;
+    const support = english ? publicUrls.supportEn : publicUrls.supportZh;
+    if (!text.includes(privacy)) errors.push(`${relative}: missing privacy URL`);
+    if (!text.includes(support)) errors.push(`${relative}: missing support URL`);
+  }
+
+  const banned = [/隐蔽/u, /摸鱼/u, /躲避监控/u, /\bbest\b/i, /#1\b/i, /officially certified/i];
+  for (const [relative, text] of contents) {
+    for (const pattern of banned) {
+      if (pattern.test(text)) errors.push(`${relative}: contains prohibited claim ${pattern.source}`);
+    }
+  }
+
+  for (const relative of files.filter((item) => item.startsWith('store/review/'))) {
+    const text = contents.get(relative);
+    if (!text) continue;
+    const concepts = relative.endsWith('-en.md')
+      ? ['floating', 'edge panel', 'side panel', 'TXT', 'online', 'Settings', 'emergency hide']
+      : ['自由悬浮窗', '贴边面板', '侧边栏', 'TXT', '在线', '设置', '紧急隐藏'];
+    for (const concept of concepts) {
+      if (!text.toLowerCase().includes(concept.toLowerCase())) errors.push(`${relative}: missing review step ${concept}`);
+    }
+  }
+  return errors;
+}
+
+module.exports = { auditManifestAndLocales, auditPublicSite, auditStoreDocuments };
