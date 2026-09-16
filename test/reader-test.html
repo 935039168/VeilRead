@@ -105,12 +105,13 @@
       extractCurrentPage: () => openWebPage(),
     };
 
+    const readerEnv = new URLSearchParams(location.search).get('env') === 'sidebar' ? 'sidebar' : 'content';
     const hostEl = document.createElement('div');
     hostEl.style.cssText = 'position:fixed;inset:0;z-index:2147483647;pointer-events:none;';
-    const shadow = hostEl.attachShadow({ mode: 'open' });
+    const readerRoot = readerEnv === 'sidebar' ? hostEl : hostEl.attachShadow({ mode: 'open' });
     document.documentElement.appendChild(hostEl);
 
-    const R = VeilRead.createReader({ mount: shadow, env: 'content', host: fakeHost });
+    const R = VeilRead.createReader({ mount: readerRoot, env: readerEnv, host: fakeHost });
     R.applySettings(settings);
 
     function setStatus(s) { document.getElementById('status').textContent = s; }
@@ -134,6 +135,19 @@
       await R.openBook('test');
       R.show();
       setStatus('loaded, chapter=' + R.getState().chapter);
+      if (readerEnv === 'sidebar') {
+        await new Promise((resolve) => setTimeout(resolve, 80));
+        const scroller = R.panel.querySelector('.vr-scroll');
+        const before = scroller.scrollTop;
+        R.pageDown();
+        await new Promise((resolve) => setTimeout(resolve, 450));
+        const rect = R.panel.getBoundingClientRect();
+        setStatus('SIDEBAR_LAYOUT ' + JSON.stringify({
+          panelTop: Math.round(rect.top), panelBottom: Math.round(rect.bottom),
+          viewportHeight: window.innerHeight, clientHeight: scroller.clientHeight,
+          scrollHeight: scroller.scrollHeight, before, after: Math.round(scroller.scrollTop),
+        }));
+      }
     })();
   </script>
 </body>

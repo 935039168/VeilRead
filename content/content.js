@@ -14,7 +14,7 @@
   let emergency = false;        // 紧急隐藏：禁用一切悬浮自动出现
   let contentBootstrapped = false;
   let showTimer = null;
-  let hideTimer = null;
+  const hideDelay = globalThis.VeilRead.readerUtils.createCancelableDelay();
   const edgeTrigger = globalThis.VeilRead.readerUtils.createEdgeTriggerState();
   let pointerInPanel = false;
   let trayEl = null;
@@ -147,19 +147,23 @@
 
   function openReader(opts) {
     emergency = false; // 主动打开即解除紧急隐藏
+    hideDelay.cancel();
     if (!contentBootstrapped) bootstrapContent();
     reader.show(opts);
   }
 
   function toggleReader() {
-    if (reader.isVisible()) reader.hide();
-    else openReader({});
+    if (reader.isVisible()) {
+      hideDelay.cancel();
+      reader.hide();
+    } else openReader({});
   }
 
   function emergencyHide() {
     emergency = true;
     clearTimeout(showTimer);
     showTimer = null;
+    hideDelay.cancel();
     reader.hide();
   }
 
@@ -167,7 +171,7 @@
     contentBootstrapped = true;
     emergency = false;
     await reader.openBook(bookId);
-    reader.show();
+    openReader({});
   }
 
   async function openWebBookMessage(msg) {
@@ -281,6 +285,7 @@
     if (e.key === 'Escape') {
       e.preventDefault();
       e.stopPropagation();
+      hideDelay.cancel();
       reader.hide(); // 面板或小圆点都会被清除
       return;
     }
@@ -413,24 +418,17 @@
     // 面板进入/离开：自动隐藏或收起为小图标
     reader.panel.addEventListener('pointerenter', () => {
       pointerInPanel = true;
-      clearTimeout(hideTimer);
+      hideDelay.cancel();
     });
     reader.panel.addEventListener('pointerleave', () => {
       pointerInPanel = false;
-      const isFloat = reader.el.dataset.mode === 'float';
-      const autoHideEnabled = isFloat
-        ? globalThis.VeilRead.readerUtils.shouldFloatAutoHide(settings, 'float')
-        : settings.trigger.autoHide;
-      if (!autoHideEnabled) return;
-      const mode = settings.trigger.autoHideMode || 'hide';
-      clearTimeout(hideTimer);
-      if (mode === 'collapse' || isFloat) {
-        // 自由悬浮窗始终收起为恢复圆点；吸附时圆点会贴在对应边缘。
-        hideTimer = setTimeout(() => reader.collapse(), settings.trigger.autoHideDelay);
-      } else if (isFloat || reader.openedViaHover()) {
-        // 自由悬浮窗明确启用后，任何打开方式都可在移出时隐藏；贴边面板保持原语义。
-        hideTimer = setTimeout(() => reader.hide(), settings.trigger.autoHideDelay);
-      }
+      hideDelay.cancel();
+      const action = globalThis.VeilRead.readerUtils.getPanelAutoHideAction(settings, reader.el.dataset.mode);
+      if (!action) return;
+      hideDelay.schedule(() => {
+        if (action === 'collapse') reader.collapse();
+        else reader.hide();
+      }, settings.trigger.autoHideDelay);
     });
 
     document.documentElement.appendChild(hostEl);
@@ -446,11 +444,8 @@
 
     store.onSettingsChanged((s) => {
       settings = s;
+      hideDelay.cancel();
       reader.applySettings(s);
-      if (reader.el.dataset.mode === 'float' &&
-          !globalThis.VeilRead.readerUtils.shouldFloatAutoHide(s, 'float')) {
-        clearTimeout(hideTimer);
-      }
       buildTray();
     });
     } catch (err) {

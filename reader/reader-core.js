@@ -53,6 +53,12 @@
       : { panelInset: '', scrollMinHeight: '' };
   }
 
+  function applyReaderLayout(mode, panelStyle, scrollStyle) {
+    const layout = getReaderLayout(mode);
+    panelStyle.inset = layout.panelInset;
+    scrollStyle.minHeight = layout.scrollMinHeight;
+  }
+
   function createEdgeTriggerState() {
     let armed = true;
     return {
@@ -390,6 +396,33 @@
       !(settings && settings.display && settings.display.float && settings.display.float.autoHide === false);
   }
 
+  function getPanelAutoHideAction(settings, mode) {
+    if (mode === 'float') return shouldFloatAutoHide(settings, mode) ? 'collapse' : null;
+    if (!String(mode || '').startsWith('edge-') || !settings || !settings.trigger || !settings.trigger.autoHide) {
+      return null;
+    }
+    return settings.trigger.autoHideMode === 'collapse' ? 'collapse' : 'hide';
+  }
+
+  function createCancelableDelay(timerApi) {
+    const timers = timerApi || globalThis;
+    let timer = null;
+    function cancel() {
+      if (timer === null) return;
+      timers.clearTimeout(timer);
+      timer = null;
+    }
+    return {
+      cancel,
+      schedule(callback, delay) {
+        cancel();
+        timer = timers.setTimeout(() => {
+          timer = null;
+          callback();
+        }, delay);
+      },
+    };
+  }
   function isFloatGeometryPatch(patch) {
     const geometry = patch && patch.display && patch.display.float;
     return !!geometry && ['x', 'y', 'w', 'h'].some((key) =>
@@ -454,7 +487,7 @@
   globalThis.VeilRead.readerUtils = {
     snapFloatGeometry, shouldFloatAutoHide, isFloatGeometryPatch, styleHintForMode, stepReaderSetting,
     shouldDeferAppearanceSync, didPointerMove, getCollapseBeadPosition, resolveReaderAppearance,
-    getReaderLayout, createEdgeTriggerState,
+    getReaderLayout, applyReaderLayout, getPanelAutoHideAction, createCancelableDelay, createEdgeTriggerState,
   };
 
   return function createReader(opts) {
@@ -553,9 +586,7 @@
       // 三种 UI 形态各自独立的外观配置（按实际渲染形态取）
       st.modeKey = mode === 'float' ? 'float' : (mode === 'fill' ? 'sidebar' : 'edge');
       const appearance = resolveReaderAppearance(d, st.modeKey);
-      const layout = getReaderLayout(mode);
-      panel.style.inset = layout.panelInset;
-      scroll.style.minHeight = layout.scrollMinHeight;
+      if (mode !== 'fill') applyReaderLayout(mode, panel.style, scroll.style);
       // 毛玻璃（可按 UI 形态分别关闭，关闭则为纯透明）
       panel.style.backdropFilter = (appearance.opacity < 0.98 && appearance.glass !== false)
         ? 'blur(10px) saturate(1.15)' : 'none';
@@ -585,6 +616,8 @@
         panel.style.top = '';
         panel.style.width = '';
         panel.style.height = '';
+        // fill 需要在清理历史几何之后再写入 inset，否则清空 left/top 会破坏固定高度。
+        applyReaderLayout(mode, panel.style, scroll.style);
       }
 
       const body = scroll.querySelector('.vr-body');
