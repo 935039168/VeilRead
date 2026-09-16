@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>VeilRead</title>
+  <link rel="stylesheet" href="sidebar.css">
+</head>
+<body>
+  <div class="top">
+    <label class="sr-only" for="bookSelect">切换书籍</label>
+    <select id="bookSelect" title="切换书籍"></select>
+    <button id="btnExtract" title="提取当前标签页正文" aria-label="提取当前标签页正文">读取当前页</button>
+  </div>
+  <div id="mount"></div>
+
+  <script src="../lib/store.js"></script>
+  <script src="../lib/online.js"></script>
+  <script src="../lib/db.js"></script>
+  <script src="../reader/reader-core.js"></script>
+  <script src="sidebar.js"></script>
+</body>
+</html>

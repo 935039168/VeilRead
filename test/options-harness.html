@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>options harness</title>
+  <style>html, body, iframe { margin: 0; height: 100%; border: none; width: 100%; }</style>
+</head>
+<body>
+  <iframe id="f"></iframe>
+  <script>
+    (async () => {
+      const html = await (await fetch('/options/options.html')).text();
+      const stub = await (await fetch('/test/chrome-stub.js')).text();
+      const patched = html.replace('<head>', '<head><base href="/options/"><script>' + stub.replace(/<\/script>/g, '<\\/script>') + '<\/script>');
+      const doc = document.getElementById('f').contentDocument;
+      doc.open(); doc.write(patched); doc.close();
+    })();
+  </script>
+</body>
+</html>

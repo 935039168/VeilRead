@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>VeilRead reader-core 测试页</title>
+  <style>
+    body { font: 14px/1.6 system-ui, sans-serif; margin: 0; background: #101018; color: #ccc; }
+    .toolbar {
+      position: fixed; top: 10px; left: 10px; z-index: 99999;
+      display: flex; gap: 6px; flex-wrap: wrap;
+      background: rgba(0,0,0,.7); padding: 8px; border-radius: 8px;
+    }
+    .toolbar button { cursor: pointer; font-size: 12px; padding: 5px 10px; border-radius: 6px; border: 1px solid #555; background: #222; color: #ddd; }
+    .toolbar button:hover { background: #333; }
+    #host { position: fixed; inset: 0; z-index: 2147483647; pointer-events: none; }
+    #status { position: fixed; bottom: 8px; left: 8px; font-size: 12px; color: #8f8; background: rgba(0,0,0,.6); padding: 4px 8px; border-radius: 6px; z-index: 99999; }
+    .pagecontent { max-width: 700px; margin: 40px auto; }
+    #tray { position: fixed; right: 0; top: 50%; width: 5px; height: 44px; border-radius: 3px; background: rgba(128,128,132,.3); cursor: pointer; }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <button onclick="R.toggle()">toggle</button>
+    <button onclick="R.show()">show</button>
+    <button onclick="R.hide()">hide</button>
+    <button onclick="R.nextChapter()">下一章</button>
+    <button onclick="R.prevChapter()">上一章</button>
+    <button onclick="R.pageDown()">翻页</button>
+    <button onclick="applyMode('edge-right')">edge-R</button>
+    <button onclick="applyMode('edge-left')">edge-L</button>
+    <button onclick="applyMode('edge-top')">edge-T</button>
+    <button onclick="applyMode('edge-bottom')">edge-B</button>
+    <button onclick="applyMode('float')">float</button>
+    <button onclick="applyMode('fill')">fill</button>
+    <button onclick="R.collapse()">collapse</button>
+    <button onclick="openWebPage()">openWeb</button>
+    <button onclick="R.renderEmpty()">空状态</button>
+  </div>
+  <div id="status">status</div>
+  <div class="pagecontent">
+    <h1>普通网页背景内容</h1>
+    <p>这是宿主页面的正文。阅读器应悬浮在其上，互不影响。滚动测试：鼠标在阅读器内滚动不应带动本页滚动。</p>
+    <p>重复段落用于制造页面高度。重复段落用于制造页面高度。重复段落用于制造页面高度。重复段落用于制造页面高度。重复段落用于制造页面高度。重复段落用于制造页面高度。重复段落用于制造页面高度。重复段落用于制造页面高度。</p>
+    <p>重复段落用于制造页面高度。重复段落用于制造页面高度。重复段落用于制造页面高度。重复段落用于制造页面高度。重复段落用于制造页面高度。重复段落用于制造页面高度。重复段落用于制造页面高度。重复段落用于制造页面高度。</p>
+    <p>重复段落用于制造页面高度。重复段落用于制造页面高度。重复段落用于制造页面高度。重复段落用于制造页面高度。重复段落用于制造页面高度。重复段落用于制造页面高度。重复段落用于制造页面高度。重复段落用于制造页面高度。</p>
+    <p>重复段落用于制造页面高度。重复段落用于制造页面高度。重复段落用于制造页面高度。重复段落用于制造页面高度。重复段落用于制造页面高度。重复段落用于制造页面高度。重复段落用于制造页面高度。重复段落用于制造页面高度。</p>
+    <p>重复段落用于制造页面高度。重复段落用于制造页面高度。重复段落用于制造页面高度。重复段落用于制造页面高度。重复段落用于制造页面高度。重复段落用于制造页面高度。重复段落用于制造页面高度。重复段落用于制造页面高度。</p>
+    <p>重复段落用于制造页面高度。重复段落用于制造页面高度。重复段落用于制造页面高度。重复段落用于制造页面高度。重复段落用于制造页面高度。重复段落用于制造页面高度。重复段落用于制造页面高度。重复段落用于制造页面高度。</p>
+  </div>
+
+  <script src="../reader/reader-core.js"></script>
+  <script>
+    // ---- 假书数据 ----
+    const chapters = [];
+    for (let i = 1; i <= 30; i++) {
+      let body = '';
+      for (let j = 0; j < 40; j++) body += '第' + i + '章的第' + (j + 1) + '段。旧历三百年秋，北境第一场雪比往年来得早了半个月，守夜人在城墙上呵出白气，看见远处山道上有一点灯火缓缓靠近。\n';
+      chapters.push({ title: '第' + i + '章 风起云涌', text: body });
+    }
+
+    const SAVED = { chapter: 12, ratio: 0.5 };
+    const NOTED = [];
+    const settings = {
+      display: { mode: 'edge', edge: 'right', width: 440, float: { x: null, y: null, w: 480, h: 600 },
+        font: 'serif', fontSize: 17, lineHeight: 1.9, maxWidth: 0, indent: true,
+        styles: {
+          float: { color: '#1a1a1a', bgColor: '#ffffff', opacity: 0.9, glass: true },
+          edge: { color: '#1a1a1a', bgColor: '#ffffff', opacity: 0.9, glass: true },
+          sidebar: { color: '#1a1a1a', bgColor: '#ffffff', opacity: 1, glass: false },
+        } },
+      reading: { scrollStep: 0.9 },
+    };
+
+    const fakeHost = {
+      getChapter: async (bookId, i) => (i >= 0 && i < chapters.length)
+        ? { title: chapters[i].title, text: chapters[i].text, index: i, count: chapters.length } : null,
+      getToc: async () => chapters.map((c) => c.title),
+      getProgress: async () => SAVED,
+      saveProgress: (id, d) => { SAVED.chapter = d.chapter; SAVED.ratio = d.ratio; setStatus('progress → ' + d.chapter + ' @ ' + d.ratio.toFixed(2)); },
+      getWebProgress: async () => null,
+      saveWebProgress: (u, d) => setStatus('webProgress → ' + d.ratio.toFixed(2)),
+      patchSettings: (p) => {
+        const dd = p.display || {};
+        if (dd.styles) {
+          settings.display.styles = settings.display.styles || {};
+          for (const k of Object.keys(dd.styles)) {
+            settings.display.styles[k] = Object.assign(settings.display.styles[k] || {}, dd.styles[k]);
+          }
+        }
+        const rest = Object.assign({}, dd);
+        delete rest.styles;
+        Object.assign(settings.display, rest);
+      },
+      loadWeb: async (url) => ({
+        title: '网络章节 ' + url, html: '<p>这是抓取的网页正文段落一。</p><p>段落二，包含<strong>加粗</strong>与<em>斜体</em>。</p>',
+        prev: url === 'c2.html' ? 'c1.html' : null, next: url === 'c1.html' ? 'c2.html' : null,
+      }),
+      loadCatalog: async () => Array.from({ length: 40 }, (_, i) => ({ t: '第' + (i + 1) + '章 网络章节', url: 'cat' + (i + 1) + '.html' })),
+      noteWebBook: (info) => { NOTED.push(info); setStatus('noteWebBook ' + info.bookUrl); },
+      onGeometry: (g) => setStatus('geometry ' + JSON.stringify(g)),
+      onShown: () => setStatus('shown viaHover=' + R.openedViaHover()),
+      onHidden: () => setStatus('hidden'),
+      openOptions: () => setStatus('openOptions'),
+      openImport: () => setStatus('openImport'),
+      extractCurrentPage: () => openWebPage(),
+    };
+
+    const hostEl = document.createElement('div');
+    hostEl.style.cssText = 'position:fixed;inset:0;z-index:2147483647;pointer-events:none;';
+    const shadow = hostEl.attachShadow({ mode: 'open' });
+    document.documentElement.appendChild(hostEl);
+
+    const R = VeilRead.createReader({ mount: shadow, env: 'content', host: fakeHost });
+    R.applySettings(settings);
+
+    function setStatus(s) { document.getElementById('status').textContent = s; }
+    function applyMode(mode) {
+      if (mode === 'float') settings.display.mode = 'float';
+      else if (mode === 'fill') settings.display.mode = 'sidebar';
+      else {
+        settings.display.mode = 'edge';
+        settings.display.edge = mode.replace('edge-', '');
+      }
+      R.applySettings(settings);
+    }
+    async function openWebPage() {
+      await R.openWeb({ title: '第一章 网页来的', url: 'c1.html',
+        html: '<p>从当前网页提取的正文第一段，应当干净无广告。</p><p>第二段。有些小说站的段落很长，这里模拟一下：旧历三百年秋，北境第一场雪比往年来得早了半个月，守夜人在城墙上呵出白气，看见远处山道上有一点灯火缓缓靠近，那灯火在风里明明灭灭，像随时会熄掉，却始终没有熄掉。</p>',
+        prev: null, next: 'c2.html', catalog: 'toc.html' });
+      R.show();
+    }
+
+    (async () => {
+      await R.openBook('test');
+      R.show();
+      setStatus('loaded, chapter=' + R.getState().chapter);
+    })();
+  </script>
+</body>
+</html>

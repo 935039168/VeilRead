@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>某小说站 - 第一百二十三章 大结局</title>
+  <style>
+    body { font: 15px/1.8 "Microsoft YaHei", sans-serif; margin: 0; color: #333; }
+    .site-nav { background: #2b2b40; color: #fff; padding: 10px 20px; }
+    .site-nav a { color: #9db8ff; margin-right: 14px; }
+    .banner { background: #ffe8c8; padding: 20px; text-align: center; }
+    .layout { display: flex; gap: 16px; max-width: 1080px; margin: 16px auto; }
+    .main { flex: 1; }
+    .sidebar-ads { width: 260px; }
+    .ad { background: #f3f3f3; border: 1px solid #ddd; padding: 14px; margin-bottom: 12px; font-size: 13px; }
+    #chapter-title { font-size: 20px; text-align: center; margin: 18px 0; }
+    #content p { text-indent: 2em; margin: 0 0 .8em; }
+    .crumb { font-size: 12px; color: #999; margin: 8px 0; }
+    .share-widgets { margin: 12px 0; }
+    .share-widgets a { margin-right: 8px; font-size: 12px; }
+    .comment-list { background: #f9f9f9; padding: 10px; font-size: 13px; }
+    .comment-list p { margin: 4px 0; }
+    .page-nav { text-align: center; margin: 20px 0; }
+    .page-nav a { margin: 0 10px; }
+    .recommend { margin: 20px 0; }
+    .recommend a { display: block; margin: 4px 0; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <nav class="site-nav">
+    <a href="/">首页</a><a href="/sort/">分类</a><a href="/rank/">排行</a><a href="/book/1">书页</a><a href="/login">登录</a>
+  </nav>
+
+  <div class="banner">🔥 全站广告位：屠龙宝刀点击就送！新用户注册送VIP！ 🔥</div>
+
+  <div class="layout">
+    <div class="main">
+      <div class="crumb">当前位置：<a href="/">首页</a> &gt; 玄幻小说 &gt; <a href="/book/1">北境之主</a> &gt; 正文</div>
+      <h1 id="chapter-title">第一百二十三章 大结局：雪落之时</h1>
+
+      <div class="share-widgets">
+        <a href="#">分享到微博</a><a href="#">分享到微信</a><a href="#">收藏本章</a><a href="#">举报错误</a>
+      </div>
+
+      <div id="content">
+        <p>旧历三百年秋，北境第一场雪比往年来得早了半个月。守夜人在城墙上呵出白气，看见远处山道上有一点灯火缓缓靠近。</p>
+        <p>"来了。"他说。</p>
+        <p>没有人回答他。所有人都在看着那点灯火，仿佛它是什么了不得的东西——事实上也确实如此。十年了，北境的每一场雪都要带走一些人，而这一次，雪带来的是终结。</p>
+        <p>城门在吱呀声中打开。马蹄声很轻，轻得不像马，倒像某种更耐心的事物。火光里走下来一个人，肩上落满了雪，手里提着一柄没有出鞘的刀。</p>
+        <p>"守了十年，"来人说，"该换我了。"</p>
+        <p>守夜人看着他，忽然笑了。他解下自己的斗篷，披风上的雪簌簌落下，像一场提前到来的告别。</p>
+        <p>这就是北境的规矩：雪落之时，刀不出鞘，人不上墙。因为该来的总会来，该走的留不住。</p>
+        <p>雪下了三天三夜。第四天清晨，城墙上换了新的守夜人，而山道上又亮起了一点灯火。</p>
+      </div>
+
+      <div class="page-nav">
+        <a id="prevLink" href="/book/1/122.html">上一章</a>
+        <a href="/book/1">返回目录</a>
+        <a id="nextLink" href="/book/1/124.html">下一章</a>
+      </div>
+
+      <div class="recommend">
+        <h3>猜你喜欢</h3>
+        <a href="/book/2">《南疆剑主》</a>
+        <a href="/book/3">《东海旧事》</a>
+      </div>
+
+      <div class="comment-list">
+        <p><strong>读者甲：</strong>完结撒花！</p>
+        <p><strong>读者乙：</strong>十年守夜人，意难平。</p>
+        <p><strong>读者丙：</strong>下一本书什么时候开？</p>
+      </div>
+    </div>
+
+    <div class="sidebar-ads">
+      <div class="ad">右侧广告位 300x250<br>点击下载APP阅读</div>
+      <div class="ad">右侧广告位 300x250<br>游戏推广</div>
+      <div class="ad">小编推荐：热点新闻十条十条十条</div>
+    </div>
+  </div>
+
+  <footer class="site-nav" style="text-align:center; padding: 14px;">
+    © 某小说站 | 关于我们 | 联系方式 | 版权声明 | 网站地图
+  </footer>
+
+  <script src="../content/extractor.js"></script>
+  <script>
+    (function () {
+      const rules = VeilRead.extractor.findRules(
+        [{ domain: 'example-novel.com', content: '#content' }], location.hostname);
+      const data = VeilRead.extractor.extract(document, null, location.href);
+
+      const out = document.createElement('pre');
+      out.id = 'extraction-result';
+      out.style.cssText = 'position:fixed;left:0;right:0;bottom:0;max-height:40vh;overflow:auto;background:#111;color:#8f8;font:12px/1.5 monospace;z-index:99999;padding:10px;margin:0;';
+      out.textContent = 'title: ' + (data && data.title) +
+        '\nprev: ' + (data && data.prev) +
+        '\nnext: ' + (data && data.next) +
+        '\n--- html ---\n' + (data ? data.html : '(null)') +
+        '\n--- 规则匹配测试: ' + (rules ? rules.domain : 'no') + ' ---';
+      document.body.appendChild(out);
+
+      window.__extraction = data;
+    })();
+  </script>
+</body>
+</html>

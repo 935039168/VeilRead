@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>VeilRead 设置</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <aside class="nav">
+    <div class="brand">VeilRead</div>
+    <button class="nav-item active" data-sec="general">显示方式</button>
+    <button class="nav-item" data-sec="appearance">阅读外观</button>
+    <button class="nav-item" data-sec="trigger">呼出与隐藏</button>
+    <button class="nav-item" data-sec="sites">站点规则</button>
+    <button class="nav-item" data-sec="books">书库管理</button>
+    <div class="nav-spacer"></div>
+    <button class="theme-btn" id="btnTheme" title="切换白天 / 夜间界面">☀ 白天模式</button>
+  </aside>
+
+  <main>
+    <!-- 显示方式 -->
+    <section id="sec-general" class="sec active">
+      <h1>显示方式</h1>
+
+      <div class="field">
+        <label>默认打开方式</label>
+        <div class="cards" id="displayMode">
+          <label class="card">
+            <input type="radio" name="mode" value="edge">
+            <b>贴边隐藏面板</b>
+            <span>平时完全看不见，像在屏幕边缘藏了一本书，需要时才滑出来。最隐蔽。</span>
+          </label>
+          <label class="card">
+            <input type="radio" name="mode" value="float">
+            <b>自由悬浮窗</b>
+            <span>一个浮在网页上的小窗口，可以随意拖动位置、拖四个角调整大小。</span>
+          </label>
+          <label class="card">
+            <input type="radio" name="mode" value="sidebar">
+            <b>浏览器原生侧边栏</b>
+            <span>使用浏览器自带的侧边分栏。选择它后请点击下方按钮打开；浏览器要求这个动作由你主动触发。</span>
+          </label>
+        </div>
+        <button id="btnOpenSidebar" class="btn" type="button">在当前标签页打开侧边栏</button>
+      </div>
+
+      <div class="field group" id="fieldEdge">
+        <div class="sub">
+          <label for="edgeSide">面板贴在哪一侧</label>
+          <select id="edgeSide">
+            <option value="right">右侧（默认）</option>
+            <option value="left">左侧</option>
+            <option value="top">顶部</option>
+            <option value="bottom">底部</option>
+          </select>
+          <p class="tip">选好后，鼠标碰到屏幕对应边缘，阅读面板就从那一侧滑出。</p>
+        </div>
+        <div class="sub">
+          <label for="edgeWidth">面板大小 <span class="val" id="edgeWidthVal"></span></label>
+          <input type="range" id="edgeWidth" min="200" max="2000" step="10">
+          <p class="tip">左右贴边时是面板的宽度，上下贴边时是高度。也可以在阅读时直接用鼠标拖动面板内侧的边缘来调整。</p>
+        </div>
+      </div>
+
+      <div class="field group" id="fieldFloat">
+        <div class="sub">
+          <label for="floatSnap">拖动到边缘时自动吸附</label>
+          <input type="checkbox" id="floatSnap">
+          <p class="tip">拖动悬浮窗时，距离屏幕任一边缘约 16px 内会自动贴齐；继续拖动即可离开边缘。</p>
+        </div>
+        <div class="sub">
+          <label for="floatAutoHide">鼠标移出后自动收起</label>
+          <input type="checkbox" id="floatAutoHide">
+          <p class="tip">仅影响自由悬浮窗。移出后会收起为一个恢复圆点：吸附时圆点贴在吸附边，未吸附时位于窗口右下角；等待时间在“呼出与隐藏”中设置。</p>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="maxWidth">每行文字的最大宽度 <span class="val" id="maxWidthVal"></span></label>
+        <input type="range" id="maxWidth" min="0" max="1000" step="20">
+        <p class="tip">限制每行最多显示多宽的文字。行太长时眼睛容易串行，设一个舒适宽度（比如 600）阅读更轻松。0 表示不限，撑满整个阅读窗口。</p>
+      </div>
+
+      <div class="field">
+        <label for="indent">段落开头空两格</label>
+        <input type="checkbox" id="indent">
+        <p class="tip">中文小说习惯：每个段落开头缩进两个字的位置。去掉勾选则顶格显示。</p>
+      </div>
+      <div class="field">
+        <label>权限与隐私</label>
+        <p class="tip">为了在你打开的普通网页上提供边缘呼出和正文提取，VeilRead 需要访问 HTTP/HTTPS 网页。它不会向 VeilRead 的服务器上传内容或阅读记录；在线翻章仅会向你正在阅读的同一网站请求章节。</p>
+      </div>
+    </section>
+
+    <!-- 阅读外观 -->
+    <section id="sec-appearance" class="sec">
+      <h1>阅读外观</h1>
+
+      <div class="field">
+        <label for="styleTarget">正在配置哪种窗口的外观</label>
+        <select id="styleTarget">
+          <option value="edge">贴边隐藏面板</option>
+          <option value="float">自由悬浮窗</option>
+          <option value="sidebar">浏览器侧边栏</option>
+        </select>
+        <p class="tip">三种窗口形态的配色、透明度、毛玻璃效果互不影响，可以分别设置。切换上面的选项后再调整下方设置即可。字体、字号、行距为三种形态共用。</p>
+      </div>
+
+      <div class="field">
+        <label>配色方案（点一下即可应用）</label>
+        <div class="chips" id="themeChips"></div>
+        <p class="tip">预设的几种常见组合：白天阅读推荐「纯白」「米黄」，夜间推荐「暗夜」「纯黑」。</p>
+      </div>
+
+      <div class="field">
+        <label for="font">正文字体</label>
+        <select id="font">
+          <option value="sans">黑体（笔画均匀，屏幕显示清晰）</option>
+          <option value="serif">宋体（传统印刷风格）</option>
+          <option value="kai">楷体（柔和手写感）</option>
+          <option value="system">系统默认字体</option>
+          <option value="mono">等宽字体（代码风格）</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="fontSize">字号 <span class="val" id="fontSizeVal"></span></label>
+        <input type="range" id="fontSize" min="12" max="28" step="1">
+        <p class="tip">文字的大小。也可以在阅读时点底部的「Aa」按钮快速调整。</p>
+      </div>
+
+      <div class="field">
+        <label for="lineHeight">行距 <span class="val" id="lineHeightVal"></span></label>
+        <input type="range" id="lineHeight" min="1.2" max="2.8" step="0.05">
+        <p class="tip">行与行之间的距离。数值越大行越稀疏，长文阅读 1.8 左右比较舒适。</p>
+      </div>
+
+      <div class="field">
+        <label>文字颜色 / 背景颜色</label>
+        <div class="inline">
+          <label for="color">文字</label><input type="color" id="color" title="文字颜色">
+          <label for="bgColor">背景</label><input type="color" id="bgColor" title="背景颜色">
+        </div>
+        <p class="tip">想完全自定义时直接取色。配色方案一栏点选会同时覆盖这两项。</p>
+      </div>
+
+      <div class="field">
+        <label for="opacity">阅读窗口的透明度 <span class="val" id="opacityVal"></span></label>
+        <input type="range" id="opacity" min="0.01" max="1" step="0.01">
+        <p class="tip">调低后可以透过阅读窗口隐约看到后面的网页。阅读时把鼠标放在窗口上按住 Ctrl 转动滚轮，也能随时调整（只影响当前窗口形态）。</p>
+      </div>
+
+      <div class="field">
+        <label for="glass">毛玻璃效果</label>
+        <input type="checkbox" id="glass">
+        <p class="tip">窗口半透明时，把背后被透出来的内容做模糊处理：开启＝磨砂玻璃质感（推荐，文字更清楚）；关闭＝纯粹透明，看得清背后原样。</p>
+      </div>
+
+      <div class="preview-box">
+        <div class="preview-label">效果预览（随上面的设置实时变化）</div>
+        <div id="preview">
+          <h3>第一章 风起</h3>
+          <p>旧历三百年秋，北境第一场雪比往年来得早了半个月。守夜人在城墙上呵出白气，看见远处山道上有一点灯火缓缓靠近。</p>
+          <p>"来了。"他说。</p>
+          <p>没有人回答他。所有人都在看着那点灯火，仿佛它是什么了不得的东西——事实上也确实如此。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 呼出与隐藏 -->
+    <section id="sec-trigger" class="sec">
+      <h1>呼出与隐藏</h1>
+
+      <div class="field">
+        <label for="hover">鼠标碰到屏幕边缘时自动打开</label>
+        <input type="checkbox" id="hover">
+        <p class="tip">开启后，阅读窗平时"藏"在屏幕边缘：把鼠标移到下面指定的边缘，阅读窗自动出现，不需要点击。</p>
+      </div>
+
+      <div class="field group" id="hoverGroup">
+        <div class="sub">
+          <label for="triggerEdge">响应哪一侧边缘</label>
+          <select id="triggerEdge">
+            <option value="right">右侧（默认）</option>
+            <option value="left">左侧</option>
+            <option value="top">顶部</option>
+            <option value="bottom">底部</option>
+          </select>
+        </div>
+        <div class="sub">
+          <label for="thickness">感应区域厚度 <span class="val" id="thicknessVal"></span></label>
+          <input type="range" id="thickness" min="4" max="30" step="1">
+          <p class="tip">鼠标需要碰到屏幕边缘多宽的一条区域才算触发。太薄不好碰到，太厚容易误触发。</p>
+        </div>
+        <div class="sub">
+          <label for="showDelay">停留多久后出现 <span class="val" id="showDelayVal"></span></label>
+          <input type="range" id="showDelay" min="0" max="600" step="20">
+          <p class="tip">鼠标在边缘停留这么久才打开阅读窗。调大一点可以避免鼠标路过时误触发。</p>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="autoHide">贴边隐藏面板：鼠标移出后自动收起</label>
+        <input type="checkbox" id="autoHide">
+        <p class="tip">开启后，鼠标移开由边缘呼出的贴边面板一段时间，它就按下面选择的方式收起来。自由悬浮窗请在“显示方式”中单独设置。</p>
+      </div>
+
+      <div class="field group" id="autoHideGroup">
+        <div class="sub">
+          <label for="autoHideMode">收起方式</label>
+          <select id="autoHideMode">
+            <option value="hide">完全隐藏</option>
+            <option value="collapse">收起为一个小图标</option>
+          </select>
+          <p class="tip">完全隐藏：仅当贴边面板由鼠标碰边缘打开时生效，避免快捷键打开后误消失。小图标：贴边面板缩成一个小圆点留在原地；自由悬浮窗移出时始终使用恢复圆点，点一下立即恢复。</p>
+        </div>
+        <div class="sub">
+          <label for="autoHideDelay">收起前的等待时间 <span class="val" id="autoHideDelayVal"></span></label>
+          <input type="range" id="autoHideDelay" min="200" max="3000" step="100">
+          <p class="tip">鼠标离开后等待这么久才收起，避免只是鼠标划过就消失。</p>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="tray">屏幕边缘的小把手</label>
+        <input type="checkbox" id="tray">
+        <p class="tip">在页面边缘常驻一个半透明的小竖条：鼠标悬浮上去打开阅读窗，点一下则常开/收起。给不喜欢"碰边缘"这种隐形触发方式的用户一个看得见摸得着的入口。</p>
+      </div>
+
+      <div class="field group" id="trayGroup">
+        <div class="sub">
+          <label for="trayEdge">小把手放在哪一侧</label>
+          <select id="trayEdge">
+            <option value="right">右侧（默认）</option>
+            <option value="left">左侧</option>
+          </select>
+        </div>
+        <div class="sub">
+          <label for="trayPos">把手的高度位置 <span class="val" id="trayPosVal"></span></label>
+          <input type="range" id="trayPos" min="0.05" max="0.95" step="0.05">
+          <p class="tip">0% 是屏幕最上方，100% 是最下方，默认在中间。</p>
+        </div>
+      </div>
+
+      <h2>快捷键与手势</h2>
+      <div class="keys">
+        <div class="key-row"><kbd>Alt + V</kbd><span>显示 / 隐藏阅读器</span></div>
+        <div class="key-row"><kbd>Alt + X</kbd><span>紧急隐藏：屏幕上瞬间清空一切痕迹，且悬浮触发同时失效，直到你主动再次打开（快捷键或点击入口）</span></div>
+        <div class="key-row"><kbd>Alt + ↓</kbd><span>下一章（在线小说也会自动抓取下一章内容）</span></div>
+        <div class="key-row"><kbd>Alt + ↑</kbd><span>上一章</span></div>
+        <div class="key-row"><kbd>Esc</kbd><span>阅读窗显示时：立即隐藏</span></div>
+        <div class="key-row"><kbd>← / →</kbd><span>鼠标放在阅读窗上时：上一章 / 下一章</span></div>
+        <div class="key-row"><kbd>PgUp / PgDn / 空格</kbd><span>鼠标放在阅读窗上时：向上 / 向下翻页</span></div>
+        <div class="key-row"><kbd>Ctrl + 滚轮</kbd><span>鼠标放在阅读窗上时：快速调节透明度</span></div>
+        <div class="key-row"><kbd>拖动窗口</kbd><span>悬浮窗：拖顶部条移动位置，拖任意一个角调整大小（大小不设上限）</span></div>
+        <div class="key-row"><kbd>拖动边缘</kbd><span>贴边面板：拖内侧边缘直接调整宽度/高度</span></div>
+      </div>
+      <button id="btnShortcuts" class="btn">修改浏览器快捷键…</button>
+      <p class="tip" style="margin-top:10px">以上快捷键仅在普通网页上生效；浏览器的新标签页、设置页等内部页面无法使用。</p>
+    </section>
+
+    <!-- 站点规则 -->
+    <section id="sec-sites" class="sec">
+      <h1>站点规则</h1>
+      <p class="tip" style="max-width:640px; margin-bottom:16px">
+        内置算法能自动识别大多数小说站和普通网页的正文。如果某个网站识别得不好（正文缺一段、或者把广告当成正文），
+        可以在这里为它手写规则。所有空格内填的都是「CSS 选择器」——最简单的获取方法：在网页上对着正文区域
+        右键 → 检查，找到包裹正文的元素，把它的 id（如 #content）或 class（如 .novel-text）填进来。
+      </p>
+      <div id="siteList"></div>
+      <p id="siteRuleHint" class="tip" role="status" aria-live="polite"></p>
+      <button id="btnAddSite" class="btn">＋ 为一个网站添加规则</button>
+    </section>
+
+    <!-- 书库管理 -->
+    <section id="sec-books" class="sec">
+      <h1>书库管理</h1>
+      <div class="field">
+        <label>导入本地 TXT 小说</label>
+        <label class="btn file" for="fileInput">选择文件…</label>
+        <input type="file" id="fileInput" accept=".txt,.text" hidden>
+        <span class="val" id="importMsg"></span>
+        <p class="tip">支持 UTF-8、GBK、Big5 编码，自动按「第一章 / 第1章 / 楔子 / 番外」等切分章节，并在导入后自动开始阅读。</p>
+      </div>
+      <div class="field web-book-form">
+        <label>添加在线书</label>
+        <div class="web-book-fields">
+          <label>书名
+            <input id="webBookTitle" type="text" placeholder="可选；留空时使用网站域名">
+          </label>
+          <label>起始章节链接
+            <input id="webBookChapterUrl" type="text" placeholder="https://example.com/book/1/chapter/1">
+          </label>
+          <label>目录 / 书籍链接
+            <input id="webBookUrl" type="text" placeholder="可选；留空时使用起始章节链接">
+          </label>
+        </div>
+        <div class="inline">
+          <button id="btnAddWebBook" class="btn" type="button">添加到书库</button>
+          <span id="webBookMsg" class="val" role="status" aria-live="polite"></span>
+        </div>
+        <p class="tip">起始章节决定从哪里开始阅读；目录 / 书籍链接用于识别同一本书，可与章节链接不同。链接仅支持 HTTP(S)。</p>
+      </div>
+      <div id="bookList"></div>
+    </section>
+  </main>
+
+  <script src="../lib/store.js"></script>
+  <script src="../lib/db.js"></script>
+  <script src="../lib/txt.js"></script>
+  <script src="../lib/online.js"></script>
+  <script src="../reader/reader-core.js"></script>
+  <script src="options.js"></script>
+</body>
+</html>

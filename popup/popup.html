@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header class="hd">
+    <span class="logo">VeilRead</span>
+    <button id="btnSettings" class="icon-btn" title="设置" aria-label="打开设置">⚙</button>
+  </header>
+
+  <div id="current" class="current" hidden>
+    <button id="btnContinue" class="continue">
+      <span class="ct" id="curTitle"></span>
+      <span class="cs" id="curSub"></span>
+      <span class="go">继续阅读 ›</span>
+    </button>
+  </div>
+
+  <section class="open-mode" aria-labelledby="openModeTitle">
+    <div class="mode-head">
+      <span id="openModeTitle">阅读页打开方式</span>
+      <span>选择后立即生效</span>
+    </div>
+    <div class="mode-switch" role="group" aria-label="阅读页打开方式">
+      <button id="btnModeFloat" type="button" aria-pressed="true">自由悬浮窗</button>
+      <button id="btnModeEdge" type="button" aria-pressed="false">贴边面板</button>
+    </div>
+    <p id="modeTip" class="mode-tip"></p>
+  </section>
+
+  <div class="actions">
+    <button id="btnReadPage" aria-label="提取正文并按所选打开方式阅读当前网页">
+      <span>阅读当前页</span><small>提取纯净正文</small>
+    </button>
+    <button id="btnSidebar" aria-label="在当前标签页打开浏览器原生侧边栏">
+      <span>打开侧边栏</span><small>浏览器原生面板</small>
+    </button>
+    <button id="btnEmergency" class="warn" aria-label="紧急隐藏阅读器">紧急隐藏</button>
+  </div>
+
+  <section class="shortcuts" aria-labelledby="shortcutTitle">
+    <div class="shortcut-head">
+      <span id="shortcutTitle">常用快捷键</span>
+      <span>Alt 组合可在浏览器中修改</span>
+    </div>
+    <div class="shortcut-grid">
+      <span>显示 / 隐藏</span><kbd>Alt + V</kbd>
+      <span>紧急隐藏</span><kbd>Alt + X</kbd>
+      <span>上一章 / 下一章</span><kbd>Alt + ↑ / ↓</kbd>
+      <span>阅读器内立即隐藏</span><kbd>Esc</kbd>
+    </div>
+  </section>
+
+  <div class="sec-title">
+    <span>书库</span>
+    <label class="import" for="fileInput">＋ 导入 TXT</label>
+    <input type="file" id="fileInput" accept=".txt,.text" hidden>
+  </div>
+  <div id="bookList" class="books"></div>
+  <div id="bookEmpty" class="empty" hidden>
+    还没有书籍 — 导入本地 TXT，或用“阅读此页”提取网页正文。
+  </div>
+  <div id="hint" class="hint" hidden></div>
+
+  <script src="../lib/store.js"></script>
+  <script src="../lib/db.js"></script>
+  <script src="../lib/txt.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

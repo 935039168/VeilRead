@@ -1,0 +1,74 @@
+{
+  "manifest_version": 3,
+  "name": "VeilRead",
+  "version": "1.0.0",
+  "description": "轻量隐蔽的浏览器阅读层：随叫随到、随时消失的小说阅读器。",
+  "minimum_chrome_version": "116",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "VeilRead",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "options_ui": {
+    "page": "options/options.html",
+    "open_in_tab": true
+  },
+  "background": {
+    "service_worker": "background/service-worker.js"
+  },
+  "permissions": [
+    "storage",
+    "unlimitedStorage",
+    "sidePanel",
+    "contextMenus",
+    "scripting"
+  ],
+  "host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
+  "side_panel": {
+    "default_path": "sidebar/sidebar.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": [
+        "lib/store.js",
+        "lib/online.js",
+        "reader/reader-core.js",
+        "content/extractor.js",
+        "content/content.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "commands": {
+    "toggle-reader": {
+      "suggested_key": { "default": "Alt+V" },
+      "description": "显示 / 隐藏阅读器"
+    },
+    "emergency-hide": {
+      "suggested_key": { "default": "Alt+X" },
+      "description": "紧急隐藏（悬浮触发将被禁用，直到再次显示）"
+    },
+    "next-chapter": {
+      "suggested_key": { "default": "Alt+Down" },
+      "description": "下一章"
+    },
+    "prev-chapter": {
+      "suggested_key": { "default": "Alt+Up" },
+      "description": "上一章"
+    }
+  }
+}
