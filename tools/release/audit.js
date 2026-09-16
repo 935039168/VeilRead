@@ -2,7 +2,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { locales } = require('./config.js');
+const { locales, runtimeRoots } = require('./config.js');
 
 function readJson(file, errors) {
   try {
@@ -174,4 +174,77 @@ function auditStoreDocuments(root) {
   return errors;
 }
 
-module.exports = { auditManifestAndLocales, auditPublicSite, auditStoreDocuments };
+function readPngSize(buffer) {
+  const signature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+  if (!Buffer.isBuffer(buffer) || buffer.length < 24 || !buffer.subarray(0, 8).equals(signature)) {
+    throw new Error('invalid PNG signature');
+  }
+  if (buffer.toString('ascii', 12, 16) !== 'IHDR') throw new Error('PNG is missing IHDR');
+  return { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20) };
+}
+
+function walkFiles(root, relative) {
+  const target = path.join(root, relative);
+  if (!fs.existsSync(target)) return [];
+  const stat = fs.statSync(target);
+  if (stat.isFile()) return [relative.replaceAll('\\', '/')];
+  return fs.readdirSync(target, { withFileTypes: true })
+    .flatMap((entry) => walkFiles(root, path.join(relative, entry.name)))
+    .sort();
+}
+
+function auditIcons(root) {
+  const errors = [];
+  for (const size of [16, 48, 128]) {
+    const relative = `icons/icon${size}.png`;
+    const file = path.join(root, relative);
+    if (!fs.existsSync(file)) {
+      errors.push(`${relative}: missing`);
+      continue;
+    }
+    try {
+      const actual = readPngSize(fs.readFileSync(file));
+      if (actual.width !== size || actual.height !== size) errors.push(`${relative}: expected ${size}x${size}, got ${actual.width}x${actual.height}`);
+    } catch (error) {
+      errors.push(`${relative}: invalid PNG (${error.message})`);
+    }
+  }
+  return errors;
+}
+
+function auditRuntimeCode(root) {
+  const errors = [];
+  const patterns = [
+    ['eval', /\beval\s*\(/],
+    ['new Function', /\bnew\s+Function\s*\(/],
+    ['remote script', /<script\b[^>]*\bsrc\s*=\s*["']https?:\/\//i],
+    ['remote module import', /\bimport\s*(?:\([^)]*|[^;]*?\bfrom\s*)["']https?:\/\//i],
+  ];
+  const files = runtimeRoots.flatMap((relative) => walkFiles(root, relative));
+  for (const relative of files.filter((file) => /\.(?:js|html)$/i.test(file))) {
+    const text = fs.readFileSync(path.join(root, relative), 'utf8');
+    for (const [label, pattern] of patterns) {
+      if (pattern.test(text)) errors.push(`${relative}: prohibited ${label}`);
+    }
+  }
+  return errors;
+}
+
+function auditRepository(root) {
+  return [
+    ...auditManifestAndLocales(root),
+    ...auditPublicSite(root),
+    ...auditStoreDocuments(root),
+    ...auditIcons(root),
+    ...auditRuntimeCode(root),
+  ].sort();
+}
+
+module.exports = {
+  auditManifestAndLocales,
+  auditPublicSite,
+  auditStoreDocuments,
+  readPngSize,
+  walkFiles,
+  auditRepository,
+};

@@ -2,6 +2,7 @@
 
 module.exports = Object.freeze({
   locales: ['zh_CN', 'en'],
+  runtimeRoots: ['manifest.json', '_locales', 'icons', 'background', 'content', 'lib', 'options', 'popup', 'reader', 'sidebar'],
   permissionKeys: ['storage', 'unlimitedStorage', 'sidePanel', 'contextMenus', 'scripting', 'http://*/*', 'https://*/*'],
   publicUrls: Object.freeze({
     home: 'https://935039168.github.io/VeilRead/',
