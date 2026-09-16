@@ -79,6 +79,8 @@ h2 { font-size: 15px; font-weight: 600; margin: 28px 0 12px; color: var(--ui-fg)
 .field { margin-bottom: 18px; max-width: 640px; }
 .field > label { display: block; font-size: 13px; opacity: .8; margin-bottom: 7px; }
 .field .tip { font-size: 12px; opacity: .55; margin-top: 6px; line-height: 1.6; }
+.privacy-link { display: inline-block; margin-top: 8px; color: var(--ui-accent); font-size: 13px; }
+.privacy-link:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; border-radius: 3px; }
 .field.group {
   border-left: 2px solid var(--ui-accent-line);
   padding-left: 16px; margin-left: 2px;
