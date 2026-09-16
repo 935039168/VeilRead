@@ -14,6 +14,7 @@
 
   const THEMES = [
     { name: '纯白', color: '#1a1a1a', bg: '#ffffff' },
+    { name: '冷灰', color: '#2B3138', bg: '#F4F6F8' },
     { name: '米黄', color: '#4a4234', bg: '#f0e2c4' },
     { name: '纸白', color: '#2c2c2c', bg: '#f6f1e5' },
     { name: '墨绿', color: '#c8d8c0', bg: '#1f2a22' },
@@ -26,6 +27,38 @@
     if (!m) return { r: 255, g: 255, b: 255 };
     const n = parseInt(m[1], 16);
     return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+  }
+
+  function resolveReaderAppearance(display, modeKey) {
+    const style = (display && display.styles && display.styles[modeKey]) || {};
+    const bgColor = style.bgColor != null ? style.bgColor : (display && display.bgColor) || '#ffffff';
+    const color = style.color != null ? style.color : (display && display.color) || '#2c2c2c';
+    const rawOpacity = style.opacity != null ? style.opacity : display && display.opacity;
+    const opacity = Math.min(1, Math.max(0.01, Number(rawOpacity) || 1));
+    const rgb = hexToRgb(bgColor);
+    return {
+      color,
+      bgColor,
+      opacity,
+      glass: style.glass != null ? style.glass : !(display && display.glass === false),
+      panelBackground: `rgba(${rgb.r},${rgb.g},${rgb.b},${opacity})`,
+      overlayBackground: `rgba(${rgb.r},${rgb.g},${rgb.b},0.96)`,
+      isDark: (rgb.r * 299 + rgb.g * 587 + rgb.b * 114) / 1000 < 128,
+    };
+  }
+
+  function getReaderLayout(mode) {
+    return mode === 'fill'
+      ? { panelInset: '0', scrollMinHeight: '0' }
+      : { panelInset: '', scrollMinHeight: '' };
+  }
+
+  function createEdgeTriggerState() {
+    let armed = true;
+    return {
+      observe(inHotZone) { if (!inHotZone) armed = true; return armed && inHotZone; },
+      onResize() { armed = false; },
+    };
   }
 
   function el(tag, cls, text) {
@@ -44,6 +77,7 @@
   }
 
   globalThis.VeilRead.FONTS = FONTS;
+  globalThis.VeilRead.THEMES = THEMES;
 
   const CSS = `
 :host, .vr { all: initial; }
@@ -61,7 +95,7 @@
   position: absolute;
   display: flex;
   flex-direction: column;
-  background: #ffffff;
+  background: var(--vr-surface-bg, #ffffff);
   border: 1px solid rgba(128, 128, 128, 0.18);
   border-radius: 10px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.22);
@@ -239,7 +273,7 @@
 /* 目录 */
 .vr-toc {
   position: absolute; inset: 0; z-index: 20;
-  background: var(--vr-tocbg, rgba(250,250,248,.98));
+  background: var(--vr-overlay-bg, rgba(250,250,248,.98));
   display: none; flex-direction: column;
   backdrop-filter: blur(6px);
 }
@@ -276,7 +310,7 @@
   display: none; flex-direction: column; gap: 10px;
   padding: 12px;
   min-width: 168px;
-  background: var(--vr-tocbg, rgba(250,250,248,.98));
+  background: var(--vr-overlay-bg, rgba(250,250,248,.98));
   border: 1px solid rgba(128,128,128,.18);
   border-radius: 10px;
   box-shadow: 0 6px 24px rgba(0,0,0,.18);
@@ -419,7 +453,8 @@
 
   globalThis.VeilRead.readerUtils = {
     snapFloatGeometry, shouldFloatAutoHide, isFloatGeometryPatch, styleHintForMode, stepReaderSetting,
-    shouldDeferAppearanceSync, didPointerMove, getCollapseBeadPosition,
+    shouldDeferAppearanceSync, didPointerMove, getCollapseBeadPosition, resolveReaderAppearance,
+    getReaderLayout, createEdgeTriggerState,
   };
 
   return function createReader(opts) {
@@ -517,19 +552,17 @@
       wrap.dataset.mode = mode;
       // 三种 UI 形态各自独立的外观配置（按实际渲染形态取）
       st.modeKey = mode === 'float' ? 'float' : (mode === 'fill' ? 'sidebar' : 'edge');
-      const my = (d.styles && d.styles[st.modeKey]) || {};
-
-      const rgb = hexToRgb(my.bgColor != null ? my.bgColor : d.bgColor);
-      const opacity = my.opacity != null ? my.opacity : d.opacity;
-      const alpha = Math.min(1, Math.max(0.01, opacity));
-      panel.style.background = `rgba(${rgb.r},${rgb.g},${rgb.b},${alpha})`;
+      const appearance = resolveReaderAppearance(d, st.modeKey);
+      const layout = getReaderLayout(mode);
+      panel.style.inset = layout.panelInset;
+      scroll.style.minHeight = layout.scrollMinHeight;
       // 毛玻璃（可按 UI 形态分别关闭，关闭则为纯透明）
-      const glass = my.glass != null ? my.glass : d.glass;
-      panel.style.backdropFilter = (alpha < 0.98 && glass !== false) ? 'blur(10px) saturate(1.15)' : 'none';
-      wrap.style.setProperty('--vr-tocbg', `rgba(${rgb.r},${rgb.g},${rgb.b},0.96)`);
-      const light = (rgb.r * 299 + rgb.g * 587 + rgb.b * 114) / 1000 < 128;
-      wrap.style.setProperty('--vr-barbg', light ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)');
-      wrap.style.setProperty('--vr-fg', my.color != null ? my.color : d.color);
+      panel.style.backdropFilter = (appearance.opacity < 0.98 && appearance.glass !== false)
+        ? 'blur(10px) saturate(1.15)' : 'none';
+      wrap.style.setProperty('--vr-surface-bg', appearance.panelBackground);
+      wrap.style.setProperty('--vr-overlay-bg', appearance.overlayBackground);
+      wrap.style.setProperty('--vr-barbg', appearance.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)');
+      wrap.style.setProperty('--vr-fg', appearance.color);
       wrap.style.setProperty('--vr-fs', d.fontSize + 'px');
       wrap.style.setProperty('--vr-lh', String(d.lineHeight));
       wrap.style.setProperty('--vr-font', FONTS[d.font] || FONTS.sans);

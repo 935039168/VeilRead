@@ -9,14 +9,8 @@ const FONTS = globalThis.VeilRead.FONTS;
 const $ = (id) => document.getElementById(id);
 let settings = null;
 
-const THEMES = [
-  { name: '纯白', color: '#1a1a1a', bg: '#ffffff' },
-  { name: '米黄', color: '#4a4234', bg: '#f0e2c4' },
-  { name: '纸白', color: '#2c2c2c', bg: '#f6f1e5' },
-  { name: '墨绿', color: '#c8d8c0', bg: '#1f2a22' },
-  { name: '暗夜', color: '#c9c9cf', bg: '#23232b' },
-  { name: '纯黑', color: '#b8b8b8', bg: '#0a0a0c' },
-];
+const THEMES = globalThis.VeilRead.THEMES;
+
 
 // ---------- 工具 ----------
 function debounce(fn, ms) {
