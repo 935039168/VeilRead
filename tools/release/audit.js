@@ -48,4 +48,63 @@ function auditManifestAndLocales(root) {
   return errors;
 }
 
-module.exports = { auditManifestAndLocales };
+function auditPublicSite(root) {
+  const errors = [];
+  const pages = [
+    'site/index.html',
+    'site/privacy/zh-CN/index.html',
+    'site/privacy/en/index.html',
+    'site/support/zh-CN/index.html',
+    'site/support/en/index.html',
+    'site/rights/index.html',
+  ];
+  for (const relative of pages) {
+    const file = path.join(root, relative);
+    if (!fs.existsSync(file)) {
+      errors.push(`${relative}: missing public page`);
+      continue;
+    }
+    const html = fs.readFileSync(file, 'utf8');
+    const requirements = [
+      ['UTF-8 charset', /<meta\s+charset=["']?UTF-8/i],
+      ['viewport', /<meta\s+name=["']viewport["']/i],
+      ['home link', /href=["']\/VeilRead\/["']/i],
+      ['Chinese link', /zh-CN/i],
+      ['English link', /\/en\//i],
+    ];
+    for (const [label, pattern] of requirements) {
+      if (!pattern.test(html)) errors.push(`${relative}: missing ${label}`);
+    }
+    for (const match of html.matchAll(/href=["']([^"']+)["']/gi)) {
+      const href = match[1];
+      if (/^(?:https?:|mailto:|#)/i.test(href)) continue;
+      const clean = href.split(/[?#]/, 1)[0];
+      let target;
+      if (clean.startsWith('/VeilRead/')) target = path.join(root, 'site', clean.slice('/VeilRead/'.length));
+      else target = path.resolve(path.dirname(file), clean);
+      if (clean.endsWith('/')) target = path.join(target, 'index.html');
+      if (!fs.existsSync(target)) errors.push(`${relative}: broken local link ${href}`);
+    }
+  }
+
+  const privacyFiles = ['site/privacy/zh-CN/index.html', 'site/privacy/en/index.html'];
+  const privacyFacts = ['2026-09-16', 'chrome.storage.local', 'IndexedDB', 'github.com/935039168/VeilRead/issues'];
+  for (const relative of privacyFiles) {
+    const file = path.join(root, relative);
+    if (!fs.existsSync(file)) continue;
+    const html = fs.readFileSync(file, 'utf8');
+    for (const fact of privacyFacts) {
+      if (!html.includes(fact)) errors.push(`${relative}: missing privacy fact ${fact}`);
+    }
+    const normalized = html.toLowerCase();
+    const concepts = relative.includes('zh-CN')
+      ? ['本地', '网页', '同一网站', '广告', '遥测', '分析', '出售', '跨站跟踪', '卸载']
+      : ['local', 'web page', 'same website', 'advertising', 'telemetry', 'analytics', 'sale', 'cross-site tracking', 'uninstall'];
+    for (const concept of concepts) {
+      if (!normalized.includes(concept.toLowerCase())) errors.push(`${relative}: missing privacy concept ${concept}`);
+    }
+  }
+  return errors;
+}
+
+module.exports = { auditManifestAndLocales, auditPublicSite };
