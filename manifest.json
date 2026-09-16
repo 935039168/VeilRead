@@ -1,8 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "VeilRead",
+  "name": "__MSG_extensionName__",
   "version": "1.0.0",
-  "description": "轻量隐蔽的浏览器阅读层：随叫随到、随时消失的小说阅读器。",
+  "description": "__MSG_extensionDescription__",
+  "default_locale": "zh_CN",
   "minimum_chrome_version": "116",
   "icons": {
     "16": "icons/icon16.png",
