@@ -15,6 +15,7 @@
   let contentBootstrapped = false;
   let showTimer = null;
   let hideTimer = null;
+  const edgeTrigger = globalThis.VeilRead.readerUtils.createEdgeTriggerState();
   let pointerInPanel = false;
   let trayEl = null;
   let resolveReaderReady;
@@ -210,16 +211,16 @@
       if (showTimer) { clearTimeout(showTimer); showTimer = null; }
       return;
     }
-    if (inEdgeStrip(e.clientX, e.clientY, t)) {
-      if (!showTimer) {
-        showTimer = setTimeout(() => {
-          showTimer = null;
-          openReader({ viaHover: true });
-        }, t.showDelay);
-      }
-    } else if (showTimer) {
-      clearTimeout(showTimer);
-      showTimer = null;
+    const inHotZone = inEdgeStrip(e.clientX, e.clientY, t);
+    if (!edgeTrigger.observe(inHotZone)) {
+      if (showTimer) { clearTimeout(showTimer); showTimer = null; }
+      return;
+    }
+    if (!showTimer) {
+      showTimer = setTimeout(() => {
+        showTimer = null;
+        openReader({ viaHover: true });
+      }, t.showDelay);
     }
   }, { passive: true, capture: true });
 
@@ -437,6 +438,8 @@
 
     // 窗口尺寸变化后重新约束面板位置与宽度
     window.addEventListener('resize', () => {
+      edgeTrigger.onResize();
+      if (showTimer) { clearTimeout(showTimer); showTimer = null; }
       if (reader) reader.applySettings(settings);
       positionTray();
     }, { passive: true });
