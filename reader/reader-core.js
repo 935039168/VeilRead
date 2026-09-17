@@ -396,12 +396,18 @@
       !(settings && settings.display && settings.display.float && settings.display.float.autoHide === false);
   }
 
+  function normalizeReaderPresentation(mode, requested) {
+    if (requested === 'bead' && mode !== 'float') return 'hidden';
+    if (requested === 'panel' && mode === 'disabled') return 'hidden';
+    return requested === 'panel' || requested === 'bead' ? requested : 'hidden';
+  }
+
   function getPanelAutoHideAction(settings, mode) {
     if (mode === 'float') return shouldFloatAutoHide(settings, mode) ? 'collapse' : null;
     if (!String(mode || '').startsWith('edge-') || !settings || !settings.trigger || !settings.trigger.autoHide) {
       return null;
     }
-    return settings.trigger.autoHideMode === 'collapse' ? 'collapse' : 'hide';
+    return 'hide';
   }
 
   function createCancelableDelay(timerApi) {
@@ -487,7 +493,8 @@
   globalThis.VeilRead.readerUtils = {
     snapFloatGeometry, shouldFloatAutoHide, isFloatGeometryPatch, styleHintForMode, stepReaderSetting,
     shouldDeferAppearanceSync, didPointerMove, getCollapseBeadPosition, resolveReaderAppearance,
-    getReaderLayout, applyReaderLayout, getPanelAutoHideAction, createCancelableDelay, createEdgeTriggerState,
+    getReaderLayout, applyReaderLayout, normalizeReaderPresentation, getPanelAutoHideAction,
+    createCancelableDelay, createEdgeTriggerState,
   };
 
   return function createReader(opts) {
@@ -546,7 +553,7 @@
 
     // ---------- 状态 ----------
     const st = {
-      visible: false,
+      presentation: 'hidden',  // hidden | panel | bead
       kind: null,             // 'txt' | 'web'
       bookId: null,
       chapter: -1, count: 0,
@@ -568,7 +575,7 @@
     // ---------- 样式应用 ----------
     function applySettings(s) {
       // 样式改变会引起重排，先记录阅读位置
-      const keepRatio = (st.visible && scroll.querySelector('.vr-body')) ? getRatio() : null;
+      const keepRatio = (st.presentation === 'panel' && scroll.querySelector('.vr-body')) ? getRatio() : null;
       st.settings = s;
       const d = s.display;
       const storedBead = d.float && d.float.bead;
@@ -581,10 +588,12 @@
       let mode;
       if (env === 'sidebar') mode = 'fill';
       else if (d.mode === 'float') mode = 'float';
-      else mode = `edge-${d.edge}`;
+      else if (d.mode === 'edge') mode = `edge-${d.edge}`;
+      else mode = 'disabled';
       wrap.dataset.mode = mode;
+      setPresentation(st.presentation, { notify: false, reason: 'mode-change' });
       // 三种 UI 形态各自独立的外观配置（按实际渲染形态取）
-      st.modeKey = mode === 'float' ? 'float' : (mode === 'fill' ? 'sidebar' : 'edge');
+      st.modeKey = mode === 'float' ? 'float' : (mode.startsWith('edge-') ? 'edge' : 'sidebar');
       const appearance = resolveReaderAppearance(d, st.modeKey);
       if (mode !== 'fill') applyReaderLayout(mode, panel.style, scroll.style);
       // 毛玻璃（可按 UI 形态分别关闭，关闭则为纯透明）
@@ -689,42 +698,58 @@
     }
 
     // ---------- 显示 / 隐藏 / 收起 ----------
+    function setPresentation(requested, options) {
+      const o = options || {};
+      const previous = st.presentation;
+      const next = normalizeReaderPresentation(wrap.dataset.mode, requested);
+      if (next === previous) return false;
+
+      st.presentation = next;
+      if (previous === 'panel' && next !== 'panel') flushProgress();
+      if (next !== 'panel') closeOverlays();
+      wrap.classList.toggle('show', next === 'panel');
+      bead.classList.toggle('show', next === 'bead');
+
+      if (next === 'panel') host.onShown && host.onShown({ viaHover: st.viaHover });
+      else if (previous === 'panel') host.onHidden && host.onHidden();
+      if (o.notify !== false && host.onPresentationChanged) {
+        host.onPresentationChanged({ presentation: next, reason: o.reason || 'set' });
+      }
+      return true;
+    }
+
     function show(opts2) {
       const o = opts2 || {};
       st.viaHover = !!o.viaHover;
-      bead.classList.remove('show');
-      if (!st.visible) {
-        st.visible = true;
-        wrap.classList.add('show');
-        host.onShown && host.onShown({ viaHover: st.viaHover });
-      }
+      return setPresentation('panel', { notify: o.notify, reason: o.reason || 'show' });
     }
-    function hide() {
-      const wasVisible = st.visible;
-      const wasCollapsed = bead.classList.contains('show');
-      if (!wasVisible && !wasCollapsed) return;
-      st.visible = false;
-      if (wasVisible) flushProgress();
-      closeOverlays();
-      wrap.classList.remove('show');
-      bead.classList.remove('show');
-      if (wasVisible) host.onHidden && host.onHidden();
+    function hide(options) {
+      const o = options || {};
+      return setPresentation('hidden', { notify: o.notify, reason: o.reason || 'hide' });
+    }
+    function showBead(position, options) {
+      if (normalizeReaderPresentation(wrap.dataset.mode, 'bead') !== 'bead') {
+        return setPresentation('hidden', options);
+      }
+      if (position || !st.beadPosition) placeBead(position || st.beadPosition);
+      const o = options || {};
+      return setPresentation('bead', { notify: o.notify, reason: o.reason || 'show-bead' });
+    }
+    function hideBead(options) {
+      if (st.presentation !== 'bead') return false;
+      const o = options || {};
+      return setPresentation('hidden', { notify: o.notify, reason: o.reason || 'hide-bead' });
     }
     // 收起为小圆点：内容与进度保留，点击圆点恢复
     function collapse() {
-      if (!st.visible) return;
-      st.visible = false;
-      flushProgress();
-      closeOverlays();
+      if (st.presentation !== 'panel' || wrap.dataset.mode !== 'float') return false;
       const r = panel.getBoundingClientRect();
       const position = getCollapseBeadPosition({
         x: r.left, y: r.top, w: r.width, h: r.height,
       }, { width: window.innerWidth, height: window.innerHeight });
-      placeBead(st.beadPosition || position);
-      wrap.classList.remove('show');
-      bead.classList.add('show');
+      return showBead(st.beadPosition || position, { reason: 'collapse' });
     }
-    function toggle(opts2) { st.visible ? hide() : show(opts2); }
+    function toggle(opts2) { return st.presentation === 'panel' ? hide() : show(opts2); }
 
     // ---------- 进度 ----------
     function getRatio() {
@@ -1191,7 +1216,8 @@
       },
       (ctx) => {
         if (!ctx.moved) {
-          show({});
+          if (host.onBeadRestoreRequested) host.onBeadRestoreRequested();
+          else show({});
           return;
         }
         st.beadPosition = {
@@ -1212,7 +1238,8 @@
     bead.addEventListener('keydown', (e) => {
       if (e.key !== 'Enter' && e.key !== ' ') return;
       e.preventDefault();
-      show({});
+      if (host.onBeadRestoreRequested) host.onBeadRestoreRequested();
+      else show({});
     });
 
     makeDrag(grab,
@@ -1310,7 +1337,7 @@
 
     // ---------- 事件 ----------
     scroll.addEventListener('scroll', () => {
-      if (!st.visible || st.emptyShown) return;
+      if (st.presentation !== 'panel' || st.emptyShown) return;
       updateProgress();
       queueSave();
     }, { passive: true });
@@ -1354,10 +1381,13 @@
       panel,
       show,
       hide,
+      showBead,
+      hideBead,
       collapse,
       toggle,
-      isVisible: () => st.visible,
-      isCollapsed: () => bead.classList.contains('show'),
+      isVisible: () => st.presentation === 'panel',
+      isCollapsed: () => st.presentation === 'bead',
+      getPresentation: () => st.presentation,
       openedViaHover: () => st.viaHover,
       openBook,
       openWeb,

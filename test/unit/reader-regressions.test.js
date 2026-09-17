@@ -43,7 +43,7 @@ test('edge auto-hide applies to every visible edge panel, regardless of how it o
   };
 
   assert.equal(getPanelAutoHideAction(base, 'edge-right'), 'hide');
-  assert.equal(getPanelAutoHideAction({ ...base, trigger: { ...base.trigger, autoHideMode: 'collapse' } }, 'edge-left'), 'collapse');
+  assert.equal(getPanelAutoHideAction({ ...base, trigger: { ...base.trigger, autoHideMode: 'collapse' } }, 'edge-left'), 'hide');
   assert.equal(getPanelAutoHideAction({ ...base, trigger: { ...base.trigger, autoHide: false } }, 'edge-right'), null);
   assert.equal(getPanelAutoHideAction(base, 'float'), 'collapse');
   assert.equal(getPanelAutoHideAction({ ...base, display: { float: { autoHide: false } } }, 'float'), null);
