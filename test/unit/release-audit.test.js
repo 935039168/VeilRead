@@ -71,3 +71,14 @@ test('release documentation links every compliance resource and command', () => 
     assert.ok(releasing.includes(text), `release guide should contain ${text}`);
   }
 });
+test('workflow configuration verifies releases and deploys only the static site', () => {
+  const ci = fs.readFileSync(path.join(root, '.github/workflows/ci.yml'), 'utf8');
+  for (const text of ['push:', 'pull_request:', 'actions/checkout@v4', 'actions/setup-node@v4', 'node-version: 20', 'npm run release:check', 'npm run package']) {
+    assert.ok(ci.includes(text), `CI should contain ${text}`);
+  }
+  const pages = fs.readFileSync(path.join(root, '.github/workflows/pages.yml'), 'utf8');
+  for (const text of ['actions/configure-pages@', 'actions/upload-pages-artifact@', 'actions/deploy-pages@', 'path: site', 'contents: read', 'pages: write', 'id-token: write']) {
+    assert.ok(pages.includes(text), `Pages workflow should contain ${text}`);
+  }
+  assert.doesNotMatch(ci + pages, /CLIENT_SECRET|API_KEY|CHROME_WEB_STORE|EDGE_PRODUCT/i);
+});
