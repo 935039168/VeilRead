@@ -77,7 +77,7 @@ function publicReaderUiSnapshot(state) {
   };
 }
 
-async function loadReaderUiState() {
+async function loadReaderUiStateRecord() {
   const area = sessionArea();
   const [settings, saved] = await Promise.all([
     store.getSettings(),
@@ -87,7 +87,12 @@ async function loadReaderUiState() {
   const raw = saved[READER_UI_KEY];
   const persistedMode = raw && raw.mode;
   const normalized = readerSession.normalizeState(raw, persistedMode || authoritativeMode);
-  return readerSession.reconcileMode(normalized, authoritativeMode);
+  const state = readerSession.reconcileMode(normalized, authoritativeMode);
+  return { state, reconciled: state.revision !== normalized.revision };
+}
+
+async function loadReaderUiState() {
+  return (await loadReaderUiStateRecord()).state;
 }
 
 async function saveReaderUiState(state) {
@@ -202,6 +207,69 @@ async function handleReaderUiEvent(message, sender) {
   });
 }
 
+function handleReaderUiActivation(activeInfo) {
+  const activeTabId = activeInfo && activeInfo.tabId;
+  if (!Number.isInteger(activeTabId)) return Promise.resolve();
+  return withReaderUi(async () => {
+    const loaded = await loadReaderUiStateRecord();
+    const previous = loaded.state;
+    let state = readerSession.reduce(previous, { type: 'tab-activated', tabId: activeTabId });
+    if (!loaded.reconciled && state.revision === previous.revision) return;
+    await saveReaderUiState(state);
+
+    if (loaded.reconciled) {
+      await sendRegisteredReaderUi(state, {
+        type: 'readerUi.sync',
+        snapshot: publicReaderUiSnapshot(state),
+      });
+      return;
+    }
+
+    const previousOwner = previous.panelTabId;
+    if (previous.presentation === 'panel' && Number.isInteger(previousOwner) && previousOwner !== activeTabId) {
+      try {
+        const response = await tabsSend(previousOwner, {
+          type: 'readerUi.hidePanel',
+          revision: state.revision,
+        });
+        if (response && response.ok === false) {
+          state = await sendRegisteredReaderUi(state, {
+            type: 'readerUi.sync',
+            snapshot: publicReaderUiSnapshot(state),
+          });
+        }
+      } catch (err) {
+        state = readerSession.reduce(state, { type: 'message-failed', tabId: previousOwner });
+        await saveReaderUiState(state);
+        state = await sendRegisteredReaderUi(state, {
+          type: 'readerUi.sync',
+          snapshot: publicReaderUiSnapshot(state),
+        });
+      }
+    }
+  });
+}
+
+function handleReaderUiModeChange(changes, areaName) {
+  const changed = changes && changes['vr.settings'];
+  if (areaName !== 'local' || !changed) return Promise.resolve();
+  return withReaderUi(async () => {
+    const settings = changed.newValue || await store.getSettings();
+    const nextMode = settings && settings.display && settings.display.mode;
+    const area = sessionArea();
+    const saved = await area.get(READER_UI_KEY);
+    const raw = saved[READER_UI_KEY];
+    const current = readerSession.normalizeState(raw, raw && raw.mode);
+    let state = readerSession.reconcileMode(current, nextMode);
+    if (state.revision === current.revision) return;
+    await saveReaderUiState(state);
+    state = await sendRegisteredReaderUi(state, {
+      type: 'readerUi.sync',
+      snapshot: publicReaderUiSnapshot(state),
+    });
+  });
+}
+
 function tabsSend(tabId, msg) {
   return new Promise((resolve, reject) => {
     chrome.tabs.sendMessage(tabId, msg, (res) => {
@@ -293,8 +361,23 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
-  sessionArea().remove(pendingOnlineOpenKey(tabId)).catch(() => {});
+  const pendingCleanup = sessionArea().remove(pendingOnlineOpenKey(tabId)).catch(() => {});
+  const readerCleanup = withReaderUi(async () => {
+    const loaded = await loadReaderUiStateRecord();
+    const previous = loaded.state;
+    const state = readerSession.reduce(previous, { type: 'tab-removed', tabId });
+    if (!loaded.reconciled && state.revision === previous.revision) return;
+    await saveReaderUiState(state);
+    await sendRegisteredReaderUi(state, {
+      type: 'readerUi.sync',
+      snapshot: publicReaderUiSnapshot(state),
+    });
+  });
+  return Promise.all([pendingCleanup, readerCleanup]).catch(() => {});
 });
+
+chrome.tabs.onActivated.addListener(handleReaderUiActivation);
+chrome.storage.onChanged.addListener(handleReaderUiModeChange);
 
 // ---------- 安装 ----------
 chrome.runtime.onInstalled.addListener(() => {

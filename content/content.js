@@ -16,6 +16,9 @@
   let contentBootstrapped = false;
   let firstOpenSettingsPromise = null;
   let lastUiRevision = -1;
+  let readerUiRegistrationPromise = null;
+  let readerUiRegistrationQueued = false;
+  let readerUiRegistrationScheduled = false;
   let showTimer = null;
   const hideDelay = globalThis.VeilRead.readerUtils.createCancelableDelay();
   const edgeTrigger = globalThis.VeilRead.readerUtils.createEdgeTriggerState();
@@ -50,6 +53,45 @@
 
   function reportReaderUi(event) {
     return send('readerUi.event', { event }).catch(() => null);
+  }
+
+  function registerReaderUi() {
+    if (readerUiRegistrationPromise) {
+      readerUiRegistrationQueued = true;
+      return readerUiRegistrationPromise;
+    }
+    const presentationAtStart = reader && reader.getPresentation();
+    const task = send('readerUi.ready')
+      .catch(() => null)
+      .then((snapshot) => {
+        if (reader && reader.getPresentation() !== presentationAtStart) {
+          if (snapshot && readerSession.shouldApplyRevision(snapshot.revision, lastUiRevision)) {
+            lastUiRevision = snapshot.revision;
+          }
+        } else {
+          applyUiSnapshot(snapshot);
+        }
+        return snapshot;
+      })
+      .finally(() => {
+        if (readerUiRegistrationPromise !== task) return;
+        readerUiRegistrationPromise = null;
+        if (readerUiRegistrationQueued) {
+          readerUiRegistrationQueued = false;
+          registerReaderUi();
+        }
+      });
+    readerUiRegistrationPromise = task;
+    return task;
+  }
+
+  function scheduleReaderUiRegistration() {
+    if (readerUiRegistrationScheduled) return;
+    readerUiRegistrationScheduled = true;
+    Promise.resolve().then(() => {
+      readerUiRegistrationScheduled = false;
+      registerReaderUi();
+    });
   }
 
   function applyUiSnapshot(snapshot) {
@@ -495,10 +537,15 @@
   // ---------- 进度落盘时机 ----------
   window.addEventListener('pagehide', () => { reader && reader.flushProgress(); });
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden || !reader) return;
+    if (!reader) return;
+    if (!document.hidden) {
+      scheduleReaderUiRegistration();
+      return;
+    }
     reader.flushProgress();
     if (reader.getPresentation() === 'panel') reader.hide({ reason: 'visibility' });
   });
+  window.addEventListener('pageshow', () => { if (reader) scheduleReaderUiRegistration(); });
 
   // ---------- 初始化 ----------
   (async function init() {
@@ -546,8 +593,7 @@
       buildTray();
     });
 
-    const snapshot = await send('readerUi.ready').catch(() => null);
-    applyUiSnapshot(snapshot);
+    await registerReaderUi();
     } catch (err) {
       readerInitError = '读取设置失败';
     } finally {

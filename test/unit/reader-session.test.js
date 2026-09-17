@@ -7,6 +7,10 @@ test('authoritative mode normalization removes incompatible presentation', () =>
   assert.deepEqual(session.reconcileMode(bead, 'edge'), {
     mode: 'edge', presentation: 'hidden', panelTabId: null, tabDocuments: {}, revision: 5,
   });
+  const panel = { mode: 'float', presentation: 'panel', panelTabId: 7, tabDocuments: { 7: 'doc' }, revision: 8 };
+  assert.deepEqual(session.reconcileMode(panel, 'edge'), {
+    mode: 'edge', presentation: 'hidden', panelTabId: null, tabDocuments: { 7: 'doc' }, revision: 9,
+  });
   assert.equal(session.normalizeMode('sidebar'), 'sidebar');
   assert.equal(session.normalizeMode('unexpected'), 'float');
 });

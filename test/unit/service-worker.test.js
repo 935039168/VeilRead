@@ -18,6 +18,7 @@ function loadWorker() {
         async remove(key) { calls.push(['session.remove', key]); delete session[key]; },
       },
       local: { async get() { return {}; }, async set() {}, async remove() {} },
+      onChanged: { addListener() {} },
     },
     tabs: {
       query: async () => [],
@@ -29,6 +30,7 @@ function loadWorker() {
       },
       onUpdated: { addListener: (fn) => { updatedListener = fn; } },
       onRemoved: { addListener() {} },
+      onActivated: { addListener() {} },
     },
     runtime: {
       onInstalled: { addListener() {} },

@@ -324,6 +324,189 @@ test('application errors from existing content scripts do not trigger reinjectio
   assert.equal(worker.calls.some(([name]) => name === 'scripting.executeScript'), false);
 });
 
+test('activating another tab hides the old full panel but preserves a global bead', async () => {
+  const panelWorker = loadWorker({ mode: 'float' });
+  await panelWorker.ready(7, 'doc-a');
+  await panelWorker.ready(8, 'doc-b');
+  await panelWorker.send(
+    { type: 'readerUi.event', event: 'panel-opened' },
+    { tab: { id: 7 }, documentId: 'doc-a' },
+  );
+  panelWorker.calls.length = 0;
+
+  await panelWorker.activated({ tabId: 8 });
+
+  assert.equal(panelWorker.state().presentation, 'hidden');
+  assert.equal(panelWorker.state().panelTabId, null);
+  assert.deepEqual(panelWorker.sent('readerUi.hidePanel').map((call) => call[1]), [7]);
+
+  const beadWorker = loadWorker({ mode: 'float' });
+  await beadWorker.ready(7, 'doc-a');
+  await beadWorker.send(
+    { type: 'readerUi.event', event: 'float-collapsed' },
+    { tab: { id: 7 }, documentId: 'doc-a' },
+  );
+  beadWorker.calls.length = 0;
+
+  await beadWorker.activated({ tabId: 8 });
+
+  assert.equal(beadWorker.state().presentation, 'bead');
+  assert.equal(beadWorker.sent('readerUi.hidePanel').length, 0);
+});
+
+test('activation persists and broadcasts mode reconciliation after worker restart', async () => {
+  const session = {
+    [UI_KEY]: {
+      mode: 'float', presentation: 'bead', panelTabId: null,
+      tabDocuments: { 7: 'doc-a' }, revision: 4,
+    },
+  };
+  const worker = loadWorker({ mode: 'edge', session });
+
+  await worker.activated({ tabId: 8 });
+
+  assert.equal(worker.state().mode, 'edge');
+  assert.equal(worker.state().presentation, 'hidden');
+  assert.equal(worker.state().revision, 5);
+  assert.equal(worker.sent('readerUi.sync').at(-1)[2].snapshot.revision, 5);
+});
+
+test('hidePanel application failure keeps a live document registered and syncs hidden state', async () => {
+  const worker = loadWorker({ mode: 'float' });
+  await worker.ready(7, 'doc-a');
+  await worker.ready(8, 'doc-b');
+  await worker.send(
+    { type: 'readerUi.event', event: 'panel-opened' },
+    { tab: { id: 7 }, documentId: 'doc-a' },
+  );
+  worker.errorResponses.add('7:readerUi.hidePanel');
+  worker.calls.length = 0;
+
+  await worker.activated({ tabId: 8 });
+
+  assert.equal(worker.state().tabDocuments['7'], 'doc-a');
+  assert.equal(worker.state().presentation, 'hidden');
+  assert.ok(worker.sent('readerUi.sync').some((call) => call[1] === 7 && call[2].snapshot.presentation === 'hidden'));
+});
+
+test('hidePanel transport failure prunes only the dead owner and updates healthy pages', async () => {
+  const worker = loadWorker({ mode: 'float' });
+  await worker.ready(7, 'doc-a');
+  await worker.ready(8, 'doc-b');
+  await worker.send(
+    { type: 'readerUi.event', event: 'panel-opened' },
+    { tab: { id: 7 }, documentId: 'doc-a' },
+  );
+  worker.failedTabs.add(7);
+  worker.calls.length = 0;
+
+  await worker.activated({ tabId: 8 });
+
+  assert.equal(worker.state().tabDocuments['7'], undefined);
+  assert.equal(worker.state().tabDocuments['8'], 'doc-b');
+  assert.ok(worker.sent('readerUi.sync').some((call) => call[1] === 8 && call[2].snapshot.revision === worker.state().revision));
+});
+
+test('navigation replaces a registered document and never reopens its old panel', async () => {
+  const worker = loadWorker({ mode: 'edge' });
+  await worker.ready(7, 'doc-old');
+  await worker.send(
+    { type: 'readerUi.event', event: 'panel-opened' },
+    { tab: { id: 7 }, documentId: 'doc-old' },
+  );
+
+  const response = await worker.ready(7, 'doc-new', 'active');
+
+  assert.equal(response.data.presentation, 'hidden');
+  assert.equal(response.data.panelTabId, null);
+  assert.equal(worker.state().tabDocuments['7'], 'doc-new');
+});
+
+test('settings mode changes clear incompatible UI and synchronize registered pages', async () => {
+  const worker = loadWorker({ mode: 'float' });
+  await worker.ready(7, 'doc-a');
+  await worker.ready(8, 'doc-b');
+  await worker.send(
+    { type: 'readerUi.event', event: 'float-collapsed' },
+    { tab: { id: 7 }, documentId: 'doc-a' },
+  );
+  worker.calls.length = 0;
+  worker.local['vr.settings'] = { display: { mode: 'edge' } };
+
+  await worker.storageChanged({
+    'vr.settings': { newValue: worker.local['vr.settings'] },
+  });
+
+  assert.equal(worker.state().mode, 'edge');
+  assert.equal(worker.state().presentation, 'hidden');
+  assert.deepEqual(worker.sent('readerUi.sync').map((call) => call[1]).sort(), [7, 8]);
+  assert.ok(worker.sent('readerUi.sync').every((call) => call[2].snapshot.mode === 'edge'));
+});
+
+test('settings mode changes hide a full panel instead of carrying it into the new mode', async () => {
+  const worker = loadWorker({ mode: 'float' });
+  await worker.ready(7, 'doc-a');
+  await worker.send(
+    { type: 'readerUi.event', event: 'panel-opened' },
+    { tab: { id: 7 }, documentId: 'doc-a' },
+  );
+  worker.local['vr.settings'] = { display: { mode: 'edge' } };
+
+  await worker.storageChanged({
+    'vr.settings': { newValue: worker.local['vr.settings'] },
+  });
+
+  assert.equal(worker.state().mode, 'edge');
+  assert.equal(worker.state().presentation, 'hidden');
+  assert.equal(worker.state().panelTabId, null);
+});
+
+test('deleting settings reconciles the session to the default floating mode', async () => {
+  const local = { 'vr.settings': { display: { mode: 'edge' } } };
+  const worker = loadWorker({ mode: 'float', local });
+  await worker.ready(7, 'doc-a');
+  delete worker.local['vr.settings'];
+
+  await worker.storageChanged({
+    'vr.settings': { oldValue: { display: { mode: 'edge' } }, newValue: undefined },
+  });
+
+  assert.equal(worker.state().mode, 'float');
+  assert.equal(worker.sent('readerUi.sync').at(-1)[2].snapshot.mode, 'float');
+});
+
+test('removed tabs leave no registration or stale panel ownership', async () => {
+  const worker = loadWorker({ mode: 'float' });
+  await worker.ready(7, 'doc-a');
+  await worker.send(
+    { type: 'readerUi.event', event: 'panel-opened' },
+    { tab: { id: 7 }, documentId: 'doc-a' },
+  );
+
+  await worker.removed(7);
+
+  assert.equal(worker.state().tabDocuments['7'], undefined);
+  assert.equal(worker.state().presentation, 'hidden');
+  assert.equal(worker.state().panelTabId, null);
+});
+
+test('first removal after worker restart persists mode reconciliation even for an unknown tab', async () => {
+  const session = {
+    [UI_KEY]: {
+      mode: 'float', presentation: 'bead', panelTabId: null,
+      tabDocuments: { 7: 'doc-a' }, revision: 4,
+    },
+  };
+  const worker = loadWorker({ mode: 'edge', session });
+
+  await worker.removed(99);
+
+  assert.equal(worker.state().mode, 'edge');
+  assert.equal(worker.state().presentation, 'hidden');
+  assert.equal(worker.state().revision, 5);
+  assert.equal(worker.sent('readerUi.sync').at(-1)[2].snapshot.revision, 5);
+});
+
 test('worker restart restores the persisted session bead', async () => {
   const session = {
     [UI_KEY]: {
@@ -337,6 +520,23 @@ test('worker restart restores the persisted session bead', async () => {
   assert.equal(response.data.presentation, 'bead');
   assert.equal(response.data.revision, 4);
   assert.equal(restarted.state().tabDocuments['7'], 'doc-a');
+});
+
+test('worker restart reconciles a persisted floating bead to the authoritative edge mode', async () => {
+  const session = {
+    [UI_KEY]: {
+      mode: 'float', presentation: 'bead', panelTabId: null,
+      tabDocuments: { 7: 'doc-a' }, revision: 4,
+    },
+  };
+  const restarted = loadWorker({ mode: 'edge', session });
+
+  const response = await restarted.ready(7, 'doc-a');
+
+  assert.equal(response.data.mode, 'edge');
+  assert.equal(response.data.presentation, 'hidden');
+  assert.equal(response.data.revision, 5);
+  assert.equal(restarted.state().revision, 5);
 });
 
 test('concurrent ready messages serialize without losing registrations or revisions', async () => {

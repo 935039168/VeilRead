@@ -32,7 +32,7 @@ class FakeElement {
   remove() { this.removed = true; }
 }
 
-async function loadContentHarness({ mode = 'float', readySnapshot = null } = {}) {
+async function loadContentHarness({ mode = 'float', readySnapshot = null, deferInitialReady = false } = {}) {
   let currentSettings = makeSettings(mode);
   let settingsReads = 0;
   let currentReads = 0;
@@ -44,6 +44,8 @@ async function loadContentHarness({ mode = 'float', readySnapshot = null } = {})
   const calls = [];
   let presentation = 'hidden';
   let readerHost = null;
+  let deferReady = deferInitialReady;
+  let pendingReadyCallback = null;
 
   const reader = {
     el: { dataset: { mode: mode === 'float' ? 'float' : (mode === 'edge' ? 'edge-right' : 'disabled') } },
@@ -109,7 +111,11 @@ async function loadContentHarness({ mode = 'float', readySnapshot = null } = {})
       lastError: null,
       sendMessage(message, callback) {
         sent.push(message);
-        if (message.type === 'readerUi.ready') callback({ ok: true, data: readySnapshot });
+        if (message.type === 'readerUi.ready' && deferReady) {
+          deferReady = false;
+          pendingReadyCallback = callback;
+        }
+        else if (message.type === 'readerUi.ready') callback({ ok: true, data: readySnapshot });
         else callback({ ok: true, data: null });
       },
       onMessage: { addListener(listener) { messageListener = listener; } },
@@ -135,6 +141,22 @@ async function loadContentHarness({ mode = 'float', readySnapshot = null } = {})
       document.hidden = hidden;
       for (const listener of documentListeners.visibilitychange || []) listener();
       await new Promise((resolve) => setTimeout(resolve, 0));
+    },
+    async pageshow(persisted = true) {
+      for (const listener of windowListeners.pageshow || []) listener({ persisted });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    },
+    async reactivate() {
+      for (const listener of windowListeners.pageshow || []) listener({ persisted: true });
+      document.hidden = false;
+      for (const listener of documentListeners.visibilitychange || []) listener();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    },
+    deferNextReady() { deferReady = true; },
+    resolveReady(snapshot = readySnapshot) {
+      const callback = pendingReadyCallback;
+      pendingReadyCallback = null;
+      callback({ ok: true, data: snapshot });
     },
   };
 }
@@ -204,6 +226,41 @@ test('visibility changes hide only a full panel and preserve a synchronized bead
   await panel.message({ type: 'readerUi.openPanel', revision: 2 });
   await panel.visibility(true);
   assert.equal(panel.reader.getPresentation(), 'hidden');
+});
+
+test('active pages re-register after BFCache restore and visibility activation', async () => {
+  const harness = await loadContentHarness({ mode: 'float' });
+  const readyCount = () => harness.sent.filter((message) => message.type === 'readerUi.ready').length;
+  assert.equal(readyCount(), 1);
+
+  await harness.reactivate();
+  assert.equal(readyCount(), 2);
+});
+
+test('a delayed ready snapshot cannot hide a panel opened while registration is in flight', async () => {
+  const harness = await loadContentHarness({ mode: 'float' });
+  harness.deferNextReady();
+  await harness.pageshow(true);
+  harness.reader.show({ reason: 'user-open' });
+  harness.readerHost.onPresentationChanged({ presentation: 'panel', reason: 'user-open' });
+
+  harness.resolveReady({ mode: 'float', presentation: 'hidden', panelTabId: null, revision: 10 });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(harness.reader.getPresentation(), 'panel');
+});
+
+test('activation queues a trailing ready when the prerender registration is still in flight', async () => {
+  const harness = await loadContentHarness({ mode: 'float', deferInitialReady: true });
+  const readyCount = () => harness.sent.filter((message) => message.type === 'readerUi.ready').length;
+  assert.equal(readyCount(), 1);
+
+  await harness.reactivate();
+  assert.equal(readyCount(), 1);
+
+  harness.resolveReady({ mode: 'float', presentation: 'hidden', panelTabId: null, revision: 1 });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(readyCount(), 2);
 });
 
 test('local presentation changes report once while synchronized projections do not echo', async () => {
