@@ -32,7 +32,10 @@ class FakeElement {
   remove() { this.removed = true; }
 }
 
-async function loadContentHarness({ mode = 'float', readySnapshot = null, deferInitialReady = false } = {}) {
+async function loadContentHarness({
+  mode = 'float', readySnapshot = null, deferInitialReady = false, deferCurrent = false,
+  deferBookOpen = false, deferFetch = false,
+} = {}) {
   let currentSettings = makeSettings(mode);
   let settingsReads = 0;
   let currentReads = 0;
@@ -46,6 +49,10 @@ async function loadContentHarness({ mode = 'float', readySnapshot = null, deferI
   let readerHost = null;
   let deferReady = deferInitialReady;
   let pendingReadyCallback = null;
+  let resolveCurrentRead = null;
+  let resolveBookOpen = null;
+  let resolveFetchText = null;
+  let rejectFetchText = null;
 
   const reader = {
     el: { dataset: { mode: mode === 'float' ? 'float' : (mode === 'edge' ? 'edge-right' : 'disabled') } },
@@ -66,7 +73,14 @@ async function loadContentHarness({ mode = 'float', readySnapshot = null, deferI
     isCollapsed: () => presentation === 'bead',
     getState: () => ({ kind: null }),
     renderEmpty() { calls.push(['renderEmpty']); },
-    openBook: async () => {}, openWeb: async () => {},
+    openBook: async (...args) => {
+      calls.push(['openBook', ...args]);
+      if (deferBookOpen) {
+        deferBookOpen = false;
+        await new Promise((resolve) => { resolveBookOpen = resolve; });
+      }
+    },
+    openWeb: async (...args) => { calls.push(['openWeb', ...args]); },
     flushProgress() { calls.push(['flushProgress']); },
     nextChapter() {}, prevChapter() {}, pageDown() {}, pageUp() {}, toast() {},
   };
@@ -82,13 +96,21 @@ async function loadContentHarness({ mode = 'float', readySnapshot = null, deferI
     console, document, location: { hostname: 'example.test', href: 'https://example.test/page' },
     innerWidth: 1200, innerHeight: 900, setTimeout, clearTimeout,
     addEventListener(type, listener) { (windowListeners[type] ||= []).push(listener); },
+    DOMParser: class {
+      parseFromString(source) { return { source }; }
+    },
   };
   context.window = context;
   context.globalThis = context;
 
   const store = {
     async getSettings() { settingsReads += 1; return structuredClone(currentSettings); },
-    async getCurrent() { currentReads += 1; return { bookId: null }; },
+    async getCurrent() {
+      currentReads += 1;
+      if (!deferCurrent) return { bookId: null };
+      deferCurrent = false;
+      return new Promise((resolve) => { resolveCurrentRead = resolve; });
+    },
     onSettingsChanged(listener) { settingsListener = listener; return () => {}; },
     patchSettings: async () => {}, getProgress: async () => null, saveProgress: async () => {},
     getWebProgress: async () => null, saveWebProgress: async () => {}, saveWebBook: async () => {},
@@ -96,8 +118,24 @@ async function loadContentHarness({ mode = 'float', readySnapshot = null, deferI
   context.VeilRead = {
     store,
     readerSession: ui,
-    extractor: { findRules: () => null },
-    online: {},
+    extractor: {
+      findRules: () => null,
+      extract: (doc) => ({
+        title: doc && doc.source ? doc.source : 'Current page',
+        content: ['Paragraph'], html: '<p>Paragraph</p>', prev: null, next: null,
+      }),
+    },
+    online: {
+      validateReadableUrl: (url) => url,
+      async fetchText() {
+        if (!deferFetch) return 'Fetched page';
+        deferFetch = false;
+        return new Promise((resolve, reject) => {
+          resolveFetchText = resolve;
+          rejectFetchText = reject;
+        });
+      },
+    },
     readerUtils: {
       isFloatGeometryPatch: () => false,
       createCancelableDelay: () => ({ cancel() {}, schedule(callback) { callback(); } }),
@@ -157,6 +195,28 @@ async function loadContentHarness({ mode = 'float', readySnapshot = null, deferI
       const callback = pendingReadyCallback;
       pendingReadyCallback = null;
       callback({ ok: true, data: snapshot });
+    },
+    resolveCurrent(value = { bookId: null }) {
+      const resolve = resolveCurrentRead;
+      resolveCurrentRead = null;
+      resolve(value);
+    },
+    resolveBook() {
+      const resolve = resolveBookOpen;
+      resolveBookOpen = null;
+      resolve();
+    },
+    resolveFetch(value = 'Old page') {
+      const resolve = resolveFetchText;
+      resolveFetchText = null;
+      rejectFetchText = null;
+      resolve(value);
+    },
+    rejectFetch(error = new Error('old request failed')) {
+      const reject = rejectFetchText;
+      resolveFetchText = null;
+      rejectFetchText = null;
+      reject(error);
     },
   };
 }
@@ -226,6 +286,126 @@ test('visibility changes hide only a full panel and preserve a synchronized bead
   await panel.message({ type: 'readerUi.openPanel', revision: 2 });
   await panel.visibility(true);
   assert.equal(panel.reader.getPresentation(), 'hidden');
+});
+
+test('an async open cannot show after its tab becomes hidden', async () => {
+  const harness = await loadContentHarness({ mode: 'float', deferCurrent: true });
+  const opening = harness.message({ type: 'toggle' });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  await harness.visibility(true);
+  harness.resolveCurrent();
+  await opening;
+
+  assert.equal(harness.reader.getPresentation(), 'hidden');
+  assert.equal(harness.calls.some(([name]) => name === 'show'), false);
+});
+
+test('a hide command cancels an open that is still bootstrapping', async () => {
+  const harness = await loadContentHarness({ mode: 'float', deferCurrent: true });
+  const opening = harness.message({ type: 'readerUi.openPanel', revision: 2 });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  await harness.message({ type: 'readerUi.hidePanel', revision: 3 });
+  harness.resolveCurrent();
+  const response = await opening;
+
+  assert.equal(response.ok, false);
+  assert.equal(harness.reader.getPresentation(), 'hidden');
+  assert.equal(harness.calls.some(([name]) => name === 'show'), false);
+});
+
+test('a local close cancels an in-flight book open', async () => {
+  const harness = await loadContentHarness({ mode: 'float', deferBookOpen: true });
+  await harness.message({ type: 'toggle' });
+  const opening = harness.message({ type: 'open', bookId: 'book-1' });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  harness.reader.hide({ reason: 'close' });
+  harness.readerHost.onPresentationChanged({ presentation: 'hidden', reason: 'close' });
+  harness.resolveBook();
+  const response = await opening;
+
+  assert.equal(response.ok, false);
+  assert.equal(harness.reader.getPresentation(), 'hidden');
+});
+
+test('a stale online fetch cannot overwrite a newer visible book', async () => {
+  const harness = await loadContentHarness({ mode: 'float', deferFetch: true });
+  const oldOpening = harness.message({
+    type: 'openWebBook', url: 'https://example.test/old', bookUrl: 'https://example.test/old-book',
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const newer = await harness.message({
+    type: 'openWebBook', useCurrentPage: true, bookTitle: 'New book',
+    bookUrl: 'https://example.test/new-book',
+  });
+  assert.equal(newer.ok, true);
+
+  harness.resolveFetch('Old book');
+  await oldOpening;
+
+  const opened = harness.calls.filter(([name]) => name === 'openWeb');
+  assert.equal(opened.at(-1)[1].title, 'New book');
+});
+
+test('a stale online failure cannot clear newer content', async () => {
+  const harness = await loadContentHarness({ mode: 'float', deferFetch: true });
+  const oldOpening = harness.message({
+    type: 'openWebBook', url: 'https://example.test/old', bookUrl: 'https://example.test/old-book',
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await harness.message({
+    type: 'openWebBook', useCurrentPage: true, bookTitle: 'New book',
+    bookUrl: 'https://example.test/new-book',
+  });
+  const emptyBefore = harness.calls.filter(([name]) => name === 'renderEmpty').length;
+
+  harness.rejectFetch();
+  await oldOpening;
+
+  assert.equal(harness.calls.filter(([name]) => name === 'renderEmpty').length, emptyBefore);
+});
+
+test('a mode change cancels an in-flight open before hidden sync can be undone', async () => {
+  const harness = await loadContentHarness({ mode: 'float', deferBookOpen: true });
+  await harness.message({ type: 'toggle' });
+  const opening = harness.message({ type: 'open', bookId: 'book-1' });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  harness.emitSettings('edge');
+  await harness.message({
+    type: 'readerUi.sync',
+    snapshot: { mode: 'edge', presentation: 'hidden', panelTabId: null, revision: 3 },
+  });
+  harness.resolveBook();
+  const response = await opening;
+
+  assert.equal(response.ok, false);
+  assert.equal(harness.reader.getPresentation(), 'hidden');
+});
+
+test('openWeb waits for the authoritative mode and reports sidebar rejection', async () => {
+  const harness = await loadContentHarness({ mode: 'sidebar' });
+
+  const response = await harness.message({ type: 'openWeb' });
+
+  assert.equal(response.ok, false);
+  assert.equal(harness.reader.getPresentation(), 'hidden');
+  assert.equal(harness.calls.some(([name]) => name === 'openWeb'), false);
+});
+
+test('book open messages report sidebar rejection instead of claiming success', async () => {
+  const harness = await loadContentHarness({ mode: 'sidebar' });
+
+  const local = await harness.message({ type: 'open', bookId: 'book-1' });
+  const online = await harness.message({
+    type: 'openWebBook', useCurrentPage: true, bookUrl: 'https://example.test/book',
+  });
+
+  assert.equal(local.ok, false);
+  assert.equal(online.ok, false);
+  assert.equal(harness.calls.some(([name]) => name === 'openBook' || name === 'openWeb'), false);
 });
 
 test('active pages re-register after BFCache restore and visibility activation', async () => {

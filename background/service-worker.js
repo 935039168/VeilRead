@@ -143,13 +143,26 @@ function requireReaderUiSender(sender) {
 async function handleReaderUiReady(sender) {
   const { tabId, documentId, documentLifecycle } = requireReaderUiSender(sender);
   return withReaderUi(async () => {
-    let state = await loadReaderUiState();
+    const loaded = await loadReaderUiStateRecord();
+    let state = loaded.state;
     if (documentLifecycle && documentLifecycle !== 'active') {
       await saveReaderUiState(state);
+      if (loaded.reconciled) {
+        state = await sendRegisteredReaderUi(state, {
+          type: 'readerUi.sync',
+          snapshot: publicReaderUiSnapshot(state),
+        });
+      }
       return publicReaderUiSnapshot(state);
     }
     state = readerSession.reduce(state, { type: 'ready', tabId, documentId });
     await saveReaderUiState(state);
+    if (loaded.reconciled) {
+      state = await sendRegisteredReaderUi(state, {
+        type: 'readerUi.sync',
+        snapshot: publicReaderUiSnapshot(state),
+      }, { excludeTabId: tabId });
+    }
     return publicReaderUiSnapshot(state);
   });
 }
@@ -157,8 +170,18 @@ async function handleReaderUiReady(sender) {
 async function handleReaderUiEvent(message, sender) {
   const { tabId, documentId } = requireReaderUiSender(sender);
   return withReaderUi(async () => {
-    let state = await loadReaderUiState();
-    if (state.tabDocuments[String(tabId)] !== documentId) return publicReaderUiSnapshot(state);
+    const loaded = await loadReaderUiStateRecord();
+    let state = loaded.state;
+    if (state.tabDocuments[String(tabId)] !== documentId) {
+      if (loaded.reconciled) {
+        await saveReaderUiState(state);
+        state = await sendRegisteredReaderUi(state, {
+          type: 'readerUi.sync',
+          snapshot: publicReaderUiSnapshot(state),
+        });
+      }
+      return publicReaderUiSnapshot(state);
+    }
 
     const eventTypes = {
       'panel-opened': 'panel-opened',
@@ -173,9 +196,33 @@ async function handleReaderUiEvent(message, sender) {
     state = readerSession.reduce(state, { type, tabId });
     await saveReaderUiState(state);
 
+    const previousOwner = previous.panelTabId;
+    if (type === 'panel-opened' && previous.presentation === 'panel' &&
+        Number.isInteger(previousOwner) && previousOwner !== tabId) {
+      try {
+        const response = await tabsSend(previousOwner, {
+          type: 'readerUi.hidePanel',
+          revision: state.revision,
+        });
+        if (response && response.ok === false) {
+          state = await sendRegisteredReaderUi(state, {
+            type: 'readerUi.sync',
+            snapshot: publicReaderUiSnapshot(state),
+          }, { excludeTabId: tabId });
+        }
+      } catch (err) {
+        state = readerSession.reduce(state, { type: 'message-failed', tabId: previousOwner });
+        await saveReaderUiState(state);
+        state = await sendRegisteredReaderUi(state, {
+          type: 'readerUi.sync',
+          snapshot: publicReaderUiSnapshot(state),
+        }, { excludeTabId: tabId });
+      }
+    }
+
     const clearsBeads = type === 'bead-restored' ||
       (type === 'panel-opened' && previous.presentation === 'bead');
-    if (type === 'float-collapsed' || clearsBeads) {
+    if (loaded.reconciled || type === 'float-collapsed' || clearsBeads) {
       state = await sendRegisteredReaderUi(state, {
         type: 'readerUi.sync',
         snapshot: publicReaderUiSnapshot(state),

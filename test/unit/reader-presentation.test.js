@@ -140,3 +140,41 @@ test('showBead and hideBead are idempotent', () => {
   assert.equal(reader.getPresentation(), 'hidden');
   assert.equal(events.filter((event) => event.presentation === 'hidden').length, 1);
 });
+
+test('a synchronized bead uses its stored position on a fresh page', () => {
+  const { reader } = createReaderHarness();
+  const settings = settingsFor('float');
+  settings.display.float.bead = { x: 222, y: 333 };
+  reader.applySettings(settings);
+
+  reader.showBead(null, { notify: false, reason: 'sync' });
+
+  const bead = reader.el.children.find((child) => child.classList.contains('vr-bead'));
+  assert.equal(bead.style.left, '222px');
+  assert.equal(bead.style.top, '333px');
+});
+
+test('a stale TXT open cannot overwrite the latest requested book', async () => {
+  let resolveOldProgress;
+  const { reader } = createReaderHarness({
+    getProgress(bookId) {
+      if (bookId !== 'old') return null;
+      return new Promise((resolve) => { resolveOldProgress = resolve; });
+    },
+    async getChapter(bookId, index) {
+      return { index, count: 5, title: `${bookId}-${index}`, text: `${bookId} text` };
+    },
+    saveProgress() {},
+  });
+  reader.applySettings(settingsFor('float'));
+
+  const oldOpening = reader.openBook('old');
+  await Promise.resolve();
+  await reader.openBook('new', { index: 0 });
+  resolveOldProgress({ chapter: 3, ratio: 0.5 });
+  await oldOpening;
+
+  const state = reader.getState();
+  assert.equal(state.bookId, 'new');
+  assert.equal(state.chapter, 0);
+});

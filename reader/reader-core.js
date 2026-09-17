@@ -731,7 +731,7 @@
       if (normalizeReaderPresentation(wrap.dataset.mode, 'bead') !== 'bead') {
         return setPresentation('hidden', options);
       }
-      if (position || !st.beadPosition) placeBead(position || st.beadPosition);
+      placeBead(position || st.beadPosition);
       const o = options || {};
       return setPresentation('bead', { notify: o.notify, reason: o.reason || 'show-bead' });
     }
@@ -783,7 +783,7 @@
 
     // ---------- TXT ----------
     async function openBook(bookId, opts2) {
-      webRequestId++;
+      const requestId = ++webRequestId;
       const o = opts2 || {};
       st.kind = 'txt';
       st.bookId = bookId;
@@ -795,23 +795,30 @@
         if (p && p.chapter != null) { index = p.chapter; ratio = p.ratio || 0; }
         else index = 0;
       }
-      await loadChapter(index, ratio);
+      if (requestId !== webRequestId || st.kind !== 'txt' || st.bookId !== bookId) return false;
+      return loadChapter(index, ratio, requestId);
     }
 
-    async function loadChapter(index, restoreRatio) {
+    async function loadChapter(index, restoreRatio, existingRequestId) {
+      const requestId = Number.isInteger(existingRequestId) ? existingRequestId : ++webRequestId;
+      const bookId = st.bookId;
       let ch = null;
-      try { ch = await host.getChapter(st.bookId, index); }
+      try { ch = await host.getChapter(bookId, index); }
       catch (e) { ch = null; }
-      if (!ch) { toast('无法读取该章节'); return; }
+      if (requestId !== webRequestId || st.kind !== 'txt' || st.bookId !== bookId) return false;
+      if (!ch) { toast('无法读取该章节'); return false; }
       st.chapter = ch.index;
       st.count = ch.count;
       st.chapterTitle = ch.title;
       st.ratio = 0;
       renderBody(ch.title, ch.text, 'txt');
       scroll.scrollTop = 0;
-      if (restoreRatio) afterLayout(() => setRatio(restoreRatio));
+      if (restoreRatio) afterLayout(() => {
+        if (requestId === webRequestId && st.kind === 'txt' && st.bookId === bookId) setRatio(restoreRatio);
+      });
       updateBar();
       flushProgress();
+      return true;
     }
 
     function renderBody(title, content, kind) {

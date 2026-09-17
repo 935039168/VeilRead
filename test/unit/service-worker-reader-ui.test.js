@@ -185,6 +185,48 @@ test('opening a local panel clears remote beads without syncing the sender back 
   assert.deepEqual(worker.sent('readerUi.sync').map((call) => call[1]), [7]);
 });
 
+test('opening a panel directly hides the previous owner even without tab activation', async () => {
+  const worker = loadWorker({ mode: 'float' });
+  await worker.ready(7, 'doc-a');
+  await worker.ready(8, 'doc-b');
+  await worker.send(
+    { type: 'readerUi.event', event: 'panel-opened' },
+    { tab: { id: 7 }, documentId: 'doc-a' },
+  );
+  worker.calls.length = 0;
+
+  const response = await worker.send(
+    { type: 'readerUi.event', event: 'panel-opened' },
+    { tab: { id: 8 }, documentId: 'doc-b' },
+  );
+
+  assert.equal(response.data.panelTabId, 8);
+  assert.deepEqual(worker.sent('readerUi.hidePanel').map((call) => call[1]), [7]);
+  assert.equal(worker.sent('readerUi.hidePanel')[0][2].revision, response.data.revision);
+});
+
+test('panel takeover recovery never synchronizes the new owner back to hidden', async () => {
+  const worker = loadWorker({ mode: 'float' });
+  await worker.ready(7, 'doc-a');
+  await worker.ready(8, 'doc-b');
+  await worker.ready(9, 'doc-c');
+  await worker.send(
+    { type: 'readerUi.event', event: 'panel-opened' },
+    { tab: { id: 7 }, documentId: 'doc-a' },
+  );
+  worker.errorResponses.add('7:readerUi.hidePanel');
+  worker.calls.length = 0;
+
+  await worker.send(
+    { type: 'readerUi.event', event: 'panel-opened' },
+    { tab: { id: 8 }, documentId: 'doc-b' },
+  );
+
+  assert.equal(worker.state().panelTabId, 8);
+  assert.equal(worker.sent('readerUi.sync').some((call) => call[1] === 8), false);
+  assert.equal(worker.sent('readerUi.sync').some((call) => call[1] === 9), true);
+});
+
 test('same-document ready reconciles an authoritative mode change and persists its revision', async () => {
   const session = {
     [UI_KEY]: {
@@ -199,6 +241,43 @@ test('same-document ready reconciles an authoritative mode change and persists i
   assert.equal(response.data.mode, 'float');
   assert.equal(response.data.revision, 5);
   assert.equal(worker.state().revision, 5);
+});
+
+test('ready broadcasts a consumed mode reconciliation to existing pages', async () => {
+  const session = {
+    [UI_KEY]: {
+      mode: 'float', presentation: 'panel', panelTabId: 7,
+      tabDocuments: { 7: 'doc-a' }, revision: 4,
+    },
+  };
+  const worker = loadWorker({ mode: 'edge', session });
+
+  const response = await worker.ready(8, 'doc-b');
+
+  assert.equal(response.data.mode, 'edge');
+  assert.equal(response.data.presentation, 'hidden');
+  assert.ok(worker.sent('readerUi.sync').some((call) =>
+    call[1] === 7 && call[2].snapshot.mode === 'edge' && call[2].snapshot.presentation === 'hidden'));
+});
+
+test('event broadcasts mode reconciliation before it can strand an old panel', async () => {
+  const session = {
+    [UI_KEY]: {
+      mode: 'float', presentation: 'panel', panelTabId: 7,
+      tabDocuments: { 7: 'doc-a', 8: 'doc-b' }, revision: 4,
+    },
+  };
+  const worker = loadWorker({ mode: 'edge', session });
+
+  const response = await worker.send(
+    { type: 'readerUi.event', event: 'panel-opened' },
+    { tab: { id: 8 }, documentId: 'doc-b' },
+  );
+
+  assert.equal(response.data.mode, 'edge');
+  assert.equal(response.data.panelTabId, 8);
+  assert.ok(worker.sent('readerUi.sync').some((call) =>
+    call[1] === 7 && call[2].snapshot.mode === 'edge'));
 });
 
 test('ready can advance once for mode reconciliation and once for a new registration', async () => {

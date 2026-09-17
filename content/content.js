@@ -15,6 +15,7 @@
   let emergency = false;        // 紧急隐藏：禁用一切悬浮自动出现
   let contentBootstrapped = false;
   let firstOpenSettingsPromise = null;
+  let openRequestId = 0;
   let lastUiRevision = -1;
   let readerUiRegistrationPromise = null;
   let readerUiRegistrationQueued = false;
@@ -53,6 +54,19 @@
 
   function reportReaderUi(event) {
     return send('readerUi.event', { event }).catch(() => null);
+  }
+
+  function beginOpenRequest() {
+    openRequestId += 1;
+    return openRequestId;
+  }
+
+  function cancelPendingOpen() {
+    openRequestId += 1;
+  }
+
+  function canFinishOpen(requestId) {
+    return requestId === openRequestId && !document.hidden && pageReaderEnabled();
   }
 
   function registerReaderUi() {
@@ -97,6 +111,8 @@
   function applyUiSnapshot(snapshot) {
     if (!snapshot || !readerSession.shouldApplyRevision(snapshot.revision, lastUiRevision)) return false;
     lastUiRevision = snapshot.revision;
+    const localMode = settings && settings.display && settings.display.mode;
+    if (snapshot.mode && snapshot.mode !== localMode) cancelPendingOpen();
     const presentation = readerSession.snapshotPresentation({
       ...snapshot,
       mode: settings && settings.display && settings.display.mode,
@@ -206,6 +222,7 @@
     onShown: () => { if (trayEl) trayEl.style.display = 'none'; },
     onHidden: () => { if (trayEl) trayEl.style.display = ''; },
     onPresentationChanged: ({ presentation, reason }) => {
+      if (presentation !== 'panel') cancelPendingOpen();
       let event = null;
       if (presentation === 'panel') event = 'panel-opened';
       else if (presentation === 'bead' && reason === 'collapse') event = 'float-collapsed';
@@ -248,27 +265,31 @@
     reader.renderEmpty();
   }
 
-  async function openReader(opts) {
+  async function openReader(opts, existingRequestId) {
+    const requestId = Number.isInteger(existingRequestId) ? existingRequestId : beginOpenRequest();
     await loadAuthoritativeSettingsBeforeFirstOpen();
-    if (!pageReaderEnabled()) {
-      reader.hide({ notify: false, reason: 'sidebar-mode' });
+    if (!canFinishOpen(requestId)) {
+      if (!pageReaderEnabled()) reader.hide({ notify: false, reason: 'sidebar-mode' });
       return false;
     }
     emergency = false; // 主动打开即解除紧急隐藏
     hideDelay.cancel();
     if (!contentBootstrapped) await bootstrapContent();
+    if (!canFinishOpen(requestId)) return false;
     reader.show(opts);
     return true;
   }
 
   async function toggleReader() {
     if (reader.isVisible()) {
+      cancelPendingOpen();
       hideDelay.cancel();
       reader.hide();
     } else await openReader({});
   }
 
   function emergencyHide() {
+    cancelPendingOpen();
     emergency = true;
     clearTimeout(showTimer);
     showTimer = null;
@@ -277,32 +298,50 @@
   }
 
   async function openBookMessage(bookId) {
+    const requestId = beginOpenRequest();
     await loadAuthoritativeSettingsBeforeFirstOpen();
-    if (!pageReaderEnabled()) return false;
+    if (!canFinishOpen(requestId)) return false;
     contentBootstrapped = true;
     emergency = false;
     await reader.openBook(bookId);
-    return openReader({});
+    if (!canFinishOpen(requestId)) return false;
+    return openReader({}, requestId);
   }
 
   async function openWebBookMessage(msg) {
-    contentBootstrapped = true; // 内容由在线书提供，跳过书库自动加载
+    const requestId = beginOpenRequest();
     try {
+      await loadAuthoritativeSettingsBeforeFirstOpen();
+      if (!canFinishOpen(requestId)) return false;
+      contentBootstrapped = true; // 内容由在线书提供，跳过书库自动加载
       const data = msg.useCurrentPage ? extractLoadedPage() : await fetchAndExtract(msg.url);
       if (!data) throw new Error('未解析到正文');
+      if (!canFinishOpen(requestId)) return false;
       const url = msg.useCurrentPage ? location.href : msg.url;
       await reader.openWeb(Object.assign({}, data, {
         url,
         bookUrl: msg.bookUrl || null,
         title: msg.bookTitle || data.title,
       }));
-      await openReader({});
+      if (!canFinishOpen(requestId)) return false;
+      return openReader({}, requestId);
     } catch (err) {
+      if (!canFinishOpen(requestId)) return false;
       reader.renderEmpty();
-      await openReader({});
+      await openReader({}, requestId);
       reader.toast('打开在线书失败：' + String(err && err.message || err));
       throw err;
     }
+  }
+
+  async function openCurrentPageMessage() {
+    const requestId = beginOpenRequest();
+    await loadAuthoritativeSettingsBeforeFirstOpen();
+    if (!canFinishOpen(requestId)) return false;
+    contentBootstrapped = true;
+    const data = await extractCurrentPage();
+    if (!data || !canFinishOpen(requestId)) return false;
+    return openReader({}, requestId);
   }
 
   // ---------- 悬浮触发 ----------
@@ -441,16 +480,20 @@
 
       case 'open':
         openBookMessage(msg.bookId)
-          .then(() => sendResponse({ ok: true }))
+          .then((opened) => sendResponse({
+            ok: opened,
+            error: opened ? undefined : '当前打开方式不使用页面阅读窗',
+          }))
           .catch((err) => sendResponse({ ok: false, error: String(err && err.message || err) }));
         return true;
 
       case 'openWeb':
-        contentBootstrapped = true; // 正文由提取提供，跳过书库自动加载
-        openReader({});
-        extractCurrentPage()
-          .then((data) => sendResponse({ ok: !!data }))
-          .catch((err) => sendResponse({ ok: false, error: String(err) }));
+        openCurrentPageMessage()
+          .then((opened) => sendResponse({
+            ok: opened,
+            error: opened ? undefined : '当前页面未打开阅读窗',
+          }))
+          .catch((err) => sendResponse({ ok: false, error: String(err && err.message || err) }));
         return true;
 
       case 'readerUi.sync':
@@ -459,8 +502,11 @@
         return false;
 
       case 'readerUi.hidePanel':
-        if (acceptUiCommandRevision(msg.revision) && reader.getPresentation() === 'panel') {
-          reader.hide({ notify: false, reason: 'sync-hide' });
+        if (acceptUiCommandRevision(msg.revision)) {
+          cancelPendingOpen();
+          if (reader.getPresentation() === 'panel') {
+            reader.hide({ notify: false, reason: 'sync-hide' });
+          }
         }
         sendResponse({ ok: true });
         return false;
@@ -471,7 +517,10 @@
           return false;
         }
         openReader({ notify: false, reason: 'sync-open' })
-          .then(() => sendResponse({ ok: true }))
+          .then((opened) => sendResponse({
+            ok: opened,
+            error: opened ? undefined : '阅读窗打开已取消',
+          }))
           .catch((err) => sendResponse({ ok: false, error: String(err && err.message || err) }));
         return true;
 
@@ -512,7 +561,10 @@
 
       case 'openWebBook': // 从书库打开在线书
         openWebBookMessage(msg)
-          .then(() => sendResponse({ ok: true }))
+          .then((opened) => sendResponse({
+            ok: opened,
+            error: opened ? undefined : '当前打开方式不使用页面阅读窗',
+          }))
           .catch((err) => sendResponse({ ok: false, error: String(err && err.message || err) }));
         return true;
 
@@ -535,13 +587,17 @@
   });
 
   // ---------- 进度落盘时机 ----------
-  window.addEventListener('pagehide', () => { reader && reader.flushProgress(); });
+  window.addEventListener('pagehide', () => {
+    cancelPendingOpen();
+    reader && reader.flushProgress();
+  });
   document.addEventListener('visibilitychange', () => {
     if (!reader) return;
     if (!document.hidden) {
       scheduleReaderUiRegistration();
       return;
     }
+    cancelPendingOpen();
     reader.flushProgress();
     if (reader.getPresentation() === 'panel') reader.hide({ reason: 'visibility' });
   });
@@ -587,6 +643,9 @@
     }, { passive: true });
 
     store.onSettingsChanged((s) => {
+      const previousMode = settings && settings.display && settings.display.mode;
+      const nextMode = s && s.display && s.display.mode;
+      if (previousMode !== nextMode) cancelPendingOpen();
       settings = s;
       hideDelay.cancel();
       reader.applySettings(s);
