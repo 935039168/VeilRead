@@ -12,6 +12,7 @@ const PENDING_ONLINE_OPEN_PREFIX = 'vr.pendingOnlineOpen:';
 
 const CONTENT_FILES = [
   'lib/store.js',
+  'lib/reader-session.js',
   'lib/online.js',
   'reader/reader-core.js',
   'content/extractor.js',

@@ -45,6 +45,7 @@
       "matches": ["http://*/*", "https://*/*"],
       "js": [
         "lib/store.js",
+        "lib/reader-session.js",
         "lib/online.js",
         "reader/reader-core.js",
         "content/extractor.js",

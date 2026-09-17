@@ -6,6 +6,7 @@
   window.__veilreadLoaded = true;
 
   const store = globalThis.VeilRead.store;
+  const readerSession = globalThis.VeilRead.readerSession;
   const extractor = globalThis.VeilRead.extractor;
   const online = globalThis.VeilRead.online;
 
@@ -13,6 +14,8 @@
   let reader = null;
   let emergency = false;        // 紧急隐藏：禁用一切悬浮自动出现
   let contentBootstrapped = false;
+  let firstOpenSettingsPromise = null;
+  let lastUiRevision = -1;
   let showTimer = null;
   const hideDelay = globalThis.VeilRead.readerUtils.createCancelableDelay();
   const edgeTrigger = globalThis.VeilRead.readerUtils.createEdgeTriggerState();
@@ -39,6 +42,51 @@
         else resolve(res ? res.data : null);
       });
     });
+  }
+
+  function pageReaderEnabled() {
+    return !!settings && readerSession.contentRenderMode(settings) !== null;
+  }
+
+  function reportReaderUi(event) {
+    return send('readerUi.event', { event }).catch(() => null);
+  }
+
+  function applyUiSnapshot(snapshot) {
+    if (!snapshot || !readerSession.shouldApplyRevision(snapshot.revision, lastUiRevision)) return false;
+    lastUiRevision = snapshot.revision;
+    const presentation = readerSession.snapshotPresentation({
+      ...snapshot,
+      mode: settings && settings.display && settings.display.mode,
+    });
+    if (presentation === 'bead' && pageReaderEnabled()) {
+      reader.showBead(null, { notify: false, reason: 'sync' });
+    } else {
+      reader.hide({ notify: false, reason: 'sync' });
+    }
+    return true;
+  }
+
+  function acceptUiCommandRevision(revision) {
+    if (!Number.isInteger(revision) || revision < lastUiRevision) return false;
+    if (revision > lastUiRevision) lastUiRevision = revision;
+    return true;
+  }
+
+  async function loadAuthoritativeSettingsBeforeFirstOpen() {
+    if (!firstOpenSettingsPromise) {
+      firstOpenSettingsPromise = store.getSettings().then((latest) => {
+        settings = latest;
+        hideDelay.cancel();
+        reader.applySettings(latest);
+        buildTray();
+        return latest;
+      }).catch((err) => {
+        firstOpenSettingsPromise = null;
+        throw err;
+      });
+    }
+    return firstOpenSettingsPromise;
   }
 
   // ---------- 正文提取 ----------
@@ -115,6 +163,19 @@
     onGeometry: null, // 下方赋值（含防抖）
     onShown: () => { if (trayEl) trayEl.style.display = 'none'; },
     onHidden: () => { if (trayEl) trayEl.style.display = ''; },
+    onPresentationChanged: ({ presentation, reason }) => {
+      let event = null;
+      if (presentation === 'panel') event = 'panel-opened';
+      else if (presentation === 'bead' && reason === 'collapse') event = 'float-collapsed';
+      else if (presentation === 'hidden') event = 'panel-hidden';
+      if (event) reportReaderUi(event);
+    },
+    onBeadRestoreRequested: () => {
+      reportReaderUi('bead-restored').then((snapshot) => {
+        // 与尚未实现协调协议的旧 worker 共存；有 revision 的响应由 worker 另发 openPanel。
+        if (!snapshot || !Number.isInteger(snapshot.revision)) reader.show({ reason: 'bead-fallback' });
+      }).catch(() => reader.show({ reason: 'bead-fallback' }));
+    },
     openOptions: (page) => { chrome.runtime.sendMessage({ type: 'openOptions', page: page || '' }); },
     openImport: () => { chrome.runtime.sendMessage({ type: 'openOptions', page: 'books' }); },
     extractCurrentPage: () => extractCurrentPage().then(() => {}),
@@ -145,18 +206,24 @@
     reader.renderEmpty();
   }
 
-  function openReader(opts) {
+  async function openReader(opts) {
+    await loadAuthoritativeSettingsBeforeFirstOpen();
+    if (!pageReaderEnabled()) {
+      reader.hide({ notify: false, reason: 'sidebar-mode' });
+      return false;
+    }
     emergency = false; // 主动打开即解除紧急隐藏
     hideDelay.cancel();
-    if (!contentBootstrapped) bootstrapContent();
+    if (!contentBootstrapped) await bootstrapContent();
     reader.show(opts);
+    return true;
   }
 
-  function toggleReader() {
+  async function toggleReader() {
     if (reader.isVisible()) {
       hideDelay.cancel();
       reader.hide();
-    } else openReader({});
+    } else await openReader({});
   }
 
   function emergencyHide() {
@@ -168,10 +235,12 @@
   }
 
   async function openBookMessage(bookId) {
+    await loadAuthoritativeSettingsBeforeFirstOpen();
+    if (!pageReaderEnabled()) return false;
     contentBootstrapped = true;
     emergency = false;
     await reader.openBook(bookId);
-    openReader({});
+    return openReader({});
   }
 
   async function openWebBookMessage(msg) {
@@ -185,10 +254,10 @@
         bookUrl: msg.bookUrl || null,
         title: msg.bookTitle || data.title,
       }));
-      openReader({});
+      await openReader({});
     } catch (err) {
       reader.renderEmpty();
-      openReader({});
+      await openReader({});
       reader.toast('打开在线书失败：' + String(err && err.message || err));
       throw err;
     }
@@ -209,7 +278,7 @@
   }
 
   document.addEventListener('mousemove', (e) => {
-    if (!settings || !reader) return;
+    if (!settings || !reader || !pageReaderEnabled()) return;
     const t = settings.trigger;
     if (!t.hover || emergency || reader.isVisible() || reader.isCollapsed()) {
       if (showTimer) { clearTimeout(showTimer); showTimer = null; }
@@ -223,7 +292,7 @@
     if (!showTimer) {
       showTimer = setTimeout(() => {
         showTimer = null;
-        openReader({ viaHover: true });
+        openReader({ viaHover: true }).catch(() => {});
       }, t.showDelay);
     }
   }, { passive: true, capture: true });
@@ -231,7 +300,7 @@
   // ---------- 托盘 ----------
   function buildTray() {
     if (trayEl) { trayEl.remove(); trayEl = null; }
-    if (!settings.trigger.tray) return;
+    if (!settings || !settings.trigger.tray || !pageReaderEnabled()) return;
     trayEl = document.createElement('div');
     const t = settings.trigger;
     Object.assign(trayEl.style, {
@@ -248,14 +317,14 @@
     trayEl.addEventListener('pointerenter', () => {
       trayEl.style.background = 'rgba(128,128,132,0.55)';
       if (emergency) return; // 紧急隐藏时悬浮不得触发
-      openReader({ viaHover: true });
+      openReader({ viaHover: true }).catch(() => {});
     });
     trayEl.addEventListener('pointerleave', () => {
       trayEl.style.background = 'rgba(128,128,132,0.28)';
     });
     trayEl.addEventListener('click', (e) => {
       e.stopPropagation();
-      toggleReader();
+      toggleReader().catch(() => {});
     });
     shadow.appendChild(trayEl);
   }
@@ -306,18 +375,22 @@
   // ---------- 消息 ----------
   function dispatchMessage(msg, sender, sendResponse) {
     switch (msg.type) {
-      case 'command':
-        if (msg.command === 'toggle-reader') toggleReader();
-        else if (msg.command === 'emergency-hide') emergencyHide();
-        else if (msg.command === 'next-chapter' && reader.isVisible()) reader.nextChapter();
-        else if (msg.command === 'prev-chapter' && reader.isVisible()) reader.prevChapter();
-        sendResponse({ ok: true });
-        return false;
+      case 'command': {
+        (async () => {
+          if (msg.command === 'toggle-reader') await toggleReader();
+          else if (msg.command === 'emergency-hide') emergencyHide();
+          else if (msg.command === 'next-chapter' && reader.isVisible()) reader.nextChapter();
+          else if (msg.command === 'prev-chapter' && reader.isVisible()) reader.prevChapter();
+          sendResponse({ ok: true });
+        })().catch((err) => sendResponse({ ok: false, error: String(err && err.message || err) }));
+        return true;
+      }
 
       case 'toggle':
-        toggleReader();
-        sendResponse({ ok: true });
-        return false;
+        toggleReader()
+          .then(() => sendResponse({ ok: true }))
+          .catch((err) => sendResponse({ ok: false, error: String(err && err.message || err) }));
+        return true;
 
       case 'emergency':
         emergencyHide();
@@ -336,6 +409,28 @@
         extractCurrentPage()
           .then((data) => sendResponse({ ok: !!data }))
           .catch((err) => sendResponse({ ok: false, error: String(err) }));
+        return true;
+
+      case 'readerUi.sync':
+        applyUiSnapshot(msg.snapshot);
+        sendResponse({ ok: true });
+        return false;
+
+      case 'readerUi.hidePanel':
+        if (acceptUiCommandRevision(msg.revision) && reader.getPresentation() === 'panel') {
+          reader.hide({ notify: false, reason: 'sync-hide' });
+        }
+        sendResponse({ ok: true });
+        return false;
+
+      case 'readerUi.openPanel':
+        if (!acceptUiCommandRevision(msg.revision)) {
+          sendResponse({ ok: true });
+          return false;
+        }
+        openReader({ notify: false, reason: 'sync-open' })
+          .then(() => sendResponse({ ok: true }))
+          .catch((err) => sendResponse({ ok: false, error: String(err && err.message || err) }));
         return true;
 
       case 'getState':
@@ -400,7 +495,9 @@
   // ---------- 进度落盘时机 ----------
   window.addEventListener('pagehide', () => { reader && reader.flushProgress(); });
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden) reader && reader.flushProgress();
+    if (!document.hidden || !reader) return;
+    reader.flushProgress();
+    if (reader.getPresentation() === 'panel') reader.hide({ reason: 'visibility' });
   });
 
   // ---------- 初始化 ----------
@@ -448,6 +545,9 @@
       reader.applySettings(s);
       buildTray();
     });
+
+    const snapshot = await send('readerUi.ready').catch(() => null);
+    applyUiSnapshot(snapshot);
     } catch (err) {
       readerInitError = '读取设置失败';
     } finally {
