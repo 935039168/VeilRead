@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "scripts": {
     "test": "node --test test/unit/*.test.js",
-    "check": "node --check lib/store.js && node --check lib/db.js && node --check lib/online.js && node --check lib/reader-session.js && node --check content/extractor.js && node --check content/content.js && node --check reader/reader-core.js && node --check background/service-worker.js && node --check popup/popup.js && node --check sidebar/sidebar.js && node --check options/options.js && node --check tools/release/config.js && node --check tools/release/audit.js && node --check tools/release/check.js && node --check tools/release/render-assets.js && node --check tools/release/zip.js && node --check tools/release/package.js",
+    "check": "node --check lib/store.js && node --check lib/db.js && node --check lib/online.js && node --check lib/reader-session.js && node --check content/extractor.js && node --check content/content.js && node --check reader/reader-core.js && node --check background/service-worker.js && node --check popup/popup-mode.js && node --check popup/popup.js && node --check sidebar/sidebar.js && node --check options/options.js && node --check tools/release/config.js && node --check tools/release/audit.js && node --check tools/release/check.js && node --check tools/release/render-assets.js && node --check tools/release/zip.js && node --check tools/release/package.js",
     "release:check": "npm test && npm run check && node tools/release/check.js",
     "assets": "node tools/release/render-assets.js",
     "package": "npm run release:check && node tools/release/package.js"

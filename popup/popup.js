@@ -3,6 +3,7 @@
 const store = globalThis.VeilRead.store;
 const db = globalThis.VeilRead.db;
 const txt = globalThis.VeilRead.txt;
+const popupMode = globalThis.VeilRead.popupMode;
 
 const $ = (id) => document.getElementById(id);
 let activeTabId = null;
@@ -46,14 +47,12 @@ function applyTheme(settings) {
 
 function renderDisplayMode() {
   if (!popupSettings) return;
-  const isFloat = popupSettings.display && popupSettings.display.mode === 'float';
-  $('btnModeFloat').classList.toggle('active', isFloat);
-  $('btnModeFloat').setAttribute('aria-pressed', String(isFloat));
-  $('btnModeEdge').classList.toggle('active', !isFloat);
-  $('btnModeEdge').setAttribute('aria-pressed', String(!isFloat));
-  $('modeTip').textContent = isFloat
-    ? '自由悬浮窗可拖动、缩放，移出后可收起为恢复圆点。'
-    : '贴边面板会从设置的浏览器边缘滑出，减少页面遮挡。';
+  const view = popupMode.getPopupModeView(popupSettings.display && popupSettings.display.mode);
+  $('btnModeFloat').classList.toggle('active', view.floatPressed);
+  $('btnModeFloat').setAttribute('aria-pressed', String(view.floatPressed));
+  $('btnModeEdge').classList.toggle('active', view.edgePressed);
+  $('btnModeEdge').setAttribute('aria-pressed', String(view.edgePressed));
+  $('modeTip').textContent = view.tip;
 }
 
 async function selectDisplayMode(mode) {
