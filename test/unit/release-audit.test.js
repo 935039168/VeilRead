@@ -61,3 +61,13 @@ test('release audit passes for the repository', () => {
   const { auditRepository } = require('../../tools/release/audit.js');
   assert.deepEqual(auditRepository(root), []);
 });
+test('release documentation links every compliance resource and command', () => {
+  const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
+  for (const link of ['RIGHTS.md', 'store/README.md', 'docs/releasing.md', 'site/privacy/zh-CN/', 'site/privacy/en/', 'site/support/zh-CN/', 'site/support/en/']) {
+    assert.ok(readme.includes(link), `README should link ${link}`);
+  }
+  const releasing = fs.readFileSync(path.join(root, 'docs/releasing.md'), 'utf8');
+  for (const text of ['npm run release:check', 'npm run assets', 'npm run package', 'Chrome', 'Edge', '开发者模式', '人工提交', '版本', 'GitHub Actions', 'Git tag']) {
+    assert.ok(releasing.includes(text), `release guide should contain ${text}`);
+  }
+});

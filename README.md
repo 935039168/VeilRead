@@ -175,3 +175,22 @@ node tools/serve.js         # 本地静态服务器（默认 8642）
 ## 5. 隐私
 
 全部数据（书籍、进度、设置、站点规则）仅存储于浏览器本地（`chrome.storage.local` 与扩展源的 IndexedDB）。VeilRead 不建设服务器、不上传数据。唯一的外网流量是用户打开在线阅读后，对当前小说站同源章节和目录的请求；该请求带该站登录态以读取用户本来就能访问的内容，不会自动跟随跨站章节链接。
+## 6. 发布与合规
+
+本仓库源码公开可见，但**不是开源软件**。版权所有，未经书面许可不得复制、修改或再发布；完整条款见 [RIGHTS.md](RIGHTS.md)。
+
+- [标准化首发流程](docs/releasing.md)
+- [商店资料总索引](store/README.md)
+- [中文隐私政策](site/privacy/zh-CN/) · [English Privacy Policy](site/privacy/en/)
+- [中文支持](site/support/zh-CN/) · [English Support](site/support/en/)
+- [手工验收清单](docs/manual-acceptance.md)
+
+常用发布命令：
+
+```text
+npm run release:check
+npm run assets
+npm run package
+```
+
+`npm run package` 生成 Chrome 与 Edge 共用的 `dist/VeilRead-v1.0.0.zip`；`dist/` 是本地产物，不提交到仓库。

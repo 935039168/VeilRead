@@ -34,3 +34,5 @@ npm run package
 ```
 
 Chrome 和 Edge 始终上传同一个校验通过的 ZIP；商店上传保持人工操作。
+
+完整步骤见 [标准化首发流程](../docs/releasing.md)，浏览器侧载检查见 [手工验收清单](../docs/manual-acceptance.md)。
