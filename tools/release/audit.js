@@ -2,7 +2,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { locales, runtimeRoots } = require('./config.js');
+const { locales, runtimeRoots, assetSpecs } = require('./config.js');
 
 function readJson(file, errors) {
   try {
@@ -230,6 +230,27 @@ function auditRuntimeCode(root) {
   return errors;
 }
 
+function auditStoreAssets(root) {
+  const errors = [];
+  for (const asset of assetSpecs) {
+    const relative = `store/assets/generated/${asset.name}`;
+    const file = path.join(root, relative);
+    if (!fs.existsSync(file)) {
+      errors.push(`${relative}: missing`);
+      continue;
+    }
+    try {
+      const actual = readPngSize(fs.readFileSync(file));
+      if (actual.width !== asset.width || actual.height !== asset.height) {
+        errors.push(`${relative}: expected ${asset.width}x${asset.height}, got ${actual.width}x${actual.height}`);
+      }
+    } catch (error) {
+      errors.push(`${relative}: invalid PNG (${error.message})`);
+    }
+  }
+  return errors;
+}
+
 function auditRepository(root) {
   return [
     ...auditManifestAndLocales(root),
@@ -237,6 +258,7 @@ function auditRepository(root) {
     ...auditStoreDocuments(root),
     ...auditIcons(root),
     ...auditRuntimeCode(root),
+    ...auditStoreAssets(root),
   ].sort();
 }
 
@@ -246,5 +268,6 @@ module.exports = {
   auditStoreDocuments,
   readPngSize,
   walkFiles,
+  auditStoreAssets,
   auditRepository,
 };

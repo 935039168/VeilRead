@@ -1,0 +1,8 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>VeilRead Promo</title><link rel="stylesheet" href="promo.css"></head>
+<body><main><img class="logo" src="/icons/icon128.png" alt="VeilRead"><div class="copy"><b id="brand">VeilRead</b><h1 id="title"></h1><p id="sub"></p></div><div class="reader"><span></span><span></span><span></span><i>V</i></div></main><script>
+const p=new URLSearchParams(location.search), locale=p.get('locale')==='en'?'en':'zh-CN', kind=p.get('kind')||'small';
+document.body.dataset.kind=kind;
+const text=locale==='en'?['Read without leaving the page','Local-first · Three reading modes']:['专注阅读，不打断浏览','本地优先 · 三种阅读方式'];
+document.getElementById('title').textContent=text[0];document.getElementById('sub').textContent=text[1];
+</script></body></html>
