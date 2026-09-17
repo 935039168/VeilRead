@@ -21,7 +21,10 @@ test('public site audit reports broken local links', (t) => {
   fs.cpSync(path.join(root, 'site'), path.join(fixture, 'site'), { recursive: true });
   const home = path.join(fixture, 'site', 'index.html');
   fs.appendFileSync(home, '<a href="./missing-page/">broken</a>');
-  assert.match(auditPublicSite(fixture).join('\n'), /site\/index\.html: broken local link \.\/missing-page\//);
+  fs.rmSync(path.join(fixture, 'site', 'language.js'), { force: true });
+  const output = auditPublicSite(fixture).join('\n');
+  assert.match(output, /site\/index\.html: broken local link \.\/missing-page\//);
+  assert.match(output, /site\/language\.js: missing language router/);
 });
 test('store documents cover listings, permissions, privacy, and reviewer guidance', () => {
   const { auditStoreDocuments } = require('../../tools/release/audit.js');
@@ -46,7 +49,7 @@ test('release audit reports missing assets, permission gaps, and executable remo
   });
   fs.rmSync(path.join(fixture, 'icons/icon16.png'));
   fs.writeFileSync(path.join(fixture, 'icons/icon48.png'), 'broken');
-  fs.appendFileSync(path.join(fixture, 'content/content.js'), "\neval('blocked');\n");
+  fs.appendFileSync(path.join(fixture, 'content/content.js'), "\neval('blocked');\nimport 'https://cdn.example.test/module.js';\nimportScripts('https://cdn.example.test/worker.js');\n");
   const permissions = path.join(fixture, 'store/compliance/permissions-zh-CN.md');
   fs.writeFileSync(permissions, fs.readFileSync(permissions, 'utf8').replace('`storage`', '`removed-storage`'));
 
@@ -55,6 +58,36 @@ test('release audit reports missing assets, permission gaps, and executable remo
   assert.match(output, /icons\/icon48\.png: invalid PNG/);
   assert.match(output, /permissions-zh-CN\.md: missing permission storage/);
   assert.match(output, /content\/content\.js: prohibited eval/);
+  assert.match(output, /content\/content\.js: prohibited remote module import/);
+  assert.match(output, /content\/content\.js: prohibited remote importScripts/);
+});
+
+test('runtime audit rejects non-local module loading syntax and permits static relative paths', (t) => {
+  const { auditRepository } = require('../../tools/release/audit.js');
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'veilread-import-audit-'));
+  t.after(() => fs.rmSync(fixture, { recursive: true, force: true }));
+  fs.cpSync(root, fixture, {
+    recursive: true,
+    filter(source) {
+      const relative = path.relative(root, source).replaceAll('\\', '/');
+      return !relative.startsWith('.git') && !relative.startsWith('.claude') && !relative.startsWith('node_modules') && !relative.startsWith('dist');
+    },
+  });
+  const cases = new Map([
+    ['remote-dynamic-comment.js', "import(/* reviewer */ `https://cdn.example.test/module.js`);"],
+    ['dynamic-variable.js', 'import(moduleSpecifier);'],
+    ['bare-static.js', "import 'https://cdn.example.test/bare.js';"],
+    ['export-from.js', "export * from 'https://cdn.example.test/export.js';"],
+    ['import-scripts-template.js', 'importScripts(`https://cdn.example.test/worker.js`);'],
+    ['local-imports.js', "import './one.js';\nimport value from '../two.js';\nexport { value } from './three.js';\nimport(/* local */ `./four.js`);\nimportScripts('../five.js', './six.js');"],
+  ]);
+  for (const [name, source] of cases) fs.writeFileSync(path.join(fixture, 'content', name), source);
+
+  const output = auditRepository(fixture).join('\n');
+  for (const name of ['remote-dynamic-comment.js', 'dynamic-variable.js', 'bare-static.js', 'export-from.js', 'import-scripts-template.js']) {
+    assert.match(output, new RegExp(`content/${name.replace('.', '\\.')}.*: prohibited remote`));
+  }
+  assert.doesNotMatch(output, /content\/local-imports\.js/);
 });
 
 test('release audit passes for the repository', () => {
@@ -81,4 +114,15 @@ test('workflow configuration verifies releases and deploys only the static site'
     assert.ok(pages.includes(text), `Pages workflow should contain ${text}`);
   }
   assert.doesNotMatch(ci + pages, /CLIENT_SECRET|API_KEY|CHROME_WEB_STORE|EDGE_PRODUCT/i);
+});
+test('product home selects a localized entry and both languages remain switchable', () => {
+  const gateway = fs.readFileSync(path.join(root, 'site/index.html'), 'utf8');
+  assert.match(gateway, /navigator\.language/i);
+  assert.match(gateway, /location\.replace/);
+  const zh = fs.readFileSync(path.join(root, 'site/zh-CN/index.html'), 'utf8');
+  const en = fs.readFileSync(path.join(root, 'site/en/index.html'), 'utf8');
+  assert.match(zh, /href="\/VeilRead\/en\/"/);
+  assert.match(en, /href="\/VeilRead\/zh-CN\/"/);
+  assert.match(gateway, /href="\.\/zh-CN\/"/);
+  assert.match(gateway, /href="\.\/en\/"/);
 });

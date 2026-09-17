@@ -54,16 +54,27 @@ function buildPackage(root) {
   const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'utf8'));
   const entries = collectRuntimeEntries(root);
   const zip = createZip(entries);
-  const names = listZipEntries(zip);
-  const packageErrors = verifyPackageEntries(root, names);
-  if (packageErrors.length) throw new Error(`package verification failed:\n${packageErrors.join('\n')}`);
   const dist = path.join(root, 'dist');
   fs.mkdirSync(dist, { recursive: true });
   const output = path.join(dist, `VeilRead-v${manifest.version}.zip`);
-  fs.writeFileSync(output, zip);
-  const hash = crypto.createHash('sha256').update(zip).digest('hex');
-  console.log(`Created ${path.relative(root, output)}: ${names.length} files, ${zip.length} bytes, sha256 ${hash}`);
-  return { output, names, bytes: zip.length, sha256: hash };
+  const temporary = output + '.tmp';
+  let written;
+  let names;
+  try {
+    fs.writeFileSync(temporary, zip);
+    written = fs.readFileSync(temporary);
+    if (!written.equals(zip)) throw new Error('staged ZIP differs from generated ZIP');
+    names = listZipEntries(written);
+    const packageErrors = verifyPackageEntries(root, names);
+    if (packageErrors.length) throw new Error(`package verification failed:\n${packageErrors.join('\n')}`);
+    fs.renameSync(temporary, output);
+  } catch (error) {
+    fs.rmSync(temporary, { force: true });
+    throw error;
+  }
+  const hash = crypto.createHash('sha256').update(written).digest('hex');
+  console.log(`Created ${path.relative(root, output)}: ${names.length} files, ${written.length} bytes, sha256 ${hash}`);
+  return { output, names, bytes: written.length, sha256: hash };
 }
 
 module.exports = { collectRuntimeEntries, manifestReferences, verifyPackageEntries, buildPackage };

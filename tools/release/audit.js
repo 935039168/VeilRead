@@ -49,9 +49,13 @@ function auditManifestAndLocales(root) {
 }
 
 function auditPublicSite(root) {
-  const errors = [];
+  const languageRouter = path.join(root, 'site/language.js');
+  const languageError = fs.existsSync(languageRouter) ? [] : ['site/language.js: missing language router'];
+  const errors = [...languageError];
   const pages = [
     'site/index.html',
+    'site/zh-CN/index.html',
+    'site/en/index.html',
     'site/privacy/zh-CN/index.html',
     'site/privacy/en/index.html',
     'site/support/zh-CN/index.html',
@@ -212,13 +216,128 @@ function auditIcons(root) {
   return errors;
 }
 
+function tokenizeJavaScript(source) {
+  const tokens = [];
+  let index = 0;
+  while (index < source.length) {
+    const char = source[index];
+    if (/\s/.test(char)) { index++; continue; }
+    if (char === '/' && source[index + 1] === '/') {
+      index += 2;
+      while (index < source.length && source[index] !== '\n') index++;
+      continue;
+    }
+    if (char === '/' && source[index + 1] === '*') {
+      const end = source.indexOf('*/', index + 2);
+      index = end < 0 ? source.length : end + 2;
+      continue;
+    }
+    if (char === "'" || char === '"' || char === '`') {
+      const quote = char;
+      let value = '';
+      let dynamic = false;
+      index++;
+      while (index < source.length) {
+        const current = source[index++];
+        if (current === '\\') {
+          value += current;
+          if (index < source.length) value += source[index++];
+          continue;
+        }
+        if (quote === '`' && current === '$' && source[index] === '{') dynamic = true;
+        if (current === quote) break;
+        value += current;
+      }
+      tokens.push({ type: quote === '`' ? 'template' : 'string', value, dynamic });
+      continue;
+    }
+    if (/[A-Za-z_$]/.test(char)) {
+      const start = index++;
+      while (index < source.length && /[A-Za-z0-9_$]/.test(source[index])) index++;
+      tokens.push({ type: 'identifier', value: source.slice(start, index) });
+      continue;
+    }
+    tokens.push({ type: 'punctuator', value: char });
+    index++;
+  }
+  return tokens;
+}
+
+function isLocalModuleArgument(tokens) {
+  if (tokens.length !== 1) return false;
+  const token = tokens[0];
+  if (token.type !== 'string' && token.type !== 'template') return false;
+  if (token.dynamic) return false;
+  return token.value.startsWith('./') || token.value.startsWith('../');
+}
+
+function readCallArguments(tokens, openIndex) {
+  if (!tokens[openIndex] || tokens[openIndex].value !== '(') return null;
+  const args = [[]];
+  let depth = 0;
+  for (let index = openIndex + 1; index < tokens.length; index++) {
+    const token = tokens[index];
+    if (token.value === '(' || token.value === '[' || token.value === '{') {
+      depth++;
+      args[args.length - 1].push(token);
+    } else if (token.value === ')' && depth === 0) {
+      if (args.length === 1 && args[0].length === 0) return [];
+      return args;
+    } else if (token.value === ')' || token.value === ']' || token.value === '}') {
+      depth--;
+      args[args.length - 1].push(token);
+    } else if (token.value === ',' && depth === 0) {
+      args.push([]);
+    } else {
+      args[args.length - 1].push(token);
+    }
+  }
+  return null;
+}
+
+function staticModuleSpecifier(tokens, start) {
+  const first = tokens[start + 1];
+  if (first && (first.type === 'string' || first.type === 'template')) return first;
+  for (let index = start + 1; index < tokens.length; index++) {
+    const token = tokens[index];
+    if (token.value === ';' || (index > start + 1 && (token.value === 'import' || token.value === 'export'))) break;
+    if (token.type === 'identifier' && token.value === 'from') return tokens[index + 1] || null;
+  }
+  return null;
+}
+
+function auditJavaScriptSource(source) {
+  const tokens = tokenizeJavaScript(source);
+  const violations = new Set();
+  for (let index = 0; index < tokens.length; index++) {
+    const token = tokens[index];
+    if (token.type !== 'identifier') continue;
+    if (token.value === 'import') {
+      if (tokens[index + 1] && tokens[index + 1].value === '.') continue;
+      if (tokens[index + 1] && tokens[index + 1].value === '(') {
+        const args = readCallArguments(tokens, index + 1);
+        if (!args || args.length !== 1 || !isLocalModuleArgument(args[0])) violations.add('remote module import');
+      } else {
+        const specifier = staticModuleSpecifier(tokens, index);
+        if (specifier && !isLocalModuleArgument([specifier])) violations.add('remote module import');
+      }
+    } else if (token.value === 'export') {
+      const specifier = staticModuleSpecifier(tokens, index);
+      if (specifier && !isLocalModuleArgument([specifier])) violations.add('remote module import');
+    } else if (token.value === 'importScripts' && tokens[index + 1] && tokens[index + 1].value === '(') {
+      const args = readCallArguments(tokens, index + 1);
+      if (!args || args.some((argument) => !isLocalModuleArgument(argument))) violations.add('remote importScripts');
+    }
+  }
+  return [...violations];
+}
+
 function auditRuntimeCode(root) {
   const errors = [];
   const patterns = [
     ['eval', /\beval\s*\(/],
     ['new Function', /\bnew\s+Function\s*\(/],
     ['remote script', /<script\b[^>]*\bsrc\s*=\s*["']https?:\/\//i],
-    ['remote module import', /\bimport\s*(?:\([^)]*|[^;]*?\bfrom\s*)["']https?:\/\//i],
   ];
   const files = runtimeRoots.flatMap((relative) => walkFiles(root, relative));
   for (const relative of files.filter((file) => /\.(?:js|html)$/i.test(file))) {
@@ -226,6 +345,7 @@ function auditRuntimeCode(root) {
     for (const [label, pattern] of patterns) {
       if (pattern.test(text)) errors.push(`${relative}: prohibited ${label}`);
     }
+    for (const label of auditJavaScriptSource(text)) errors.push(`${relative}: prohibited ${label}`);
   }
   return errors;
 }
@@ -269,5 +389,6 @@ module.exports = {
   readPngSize,
   walkFiles,
   auditStoreAssets,
+  auditJavaScriptSource,
   auditRepository,
 };

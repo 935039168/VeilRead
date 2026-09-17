@@ -1,6 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
+const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 
 const root = path.resolve(__dirname, '../..');
@@ -34,4 +36,86 @@ test('runtime package entries contain extension files and exclude development fi
   assert.ok(names.includes('reader/reader-core.js'));
   assert.equal(names.some((name) => /^(?:docs|site|store|test|tools)\//.test(name)), false);
   assert.deepEqual(verifyPackageEntries(root, names), []);
+});
+test('ZIP reader rejects payload corruption through CRC verification', () => {
+  const { createZip, listZipEntries } = require('../../tools/release/zip.js');
+  const zip = createZip([{ name: 'manifest.json', data: Buffer.from('payload-marker') }]);
+  const corrupted = Buffer.from(zip);
+  const dataOffset = corrupted.indexOf(Buffer.from('payload-marker'));
+  assert.notEqual(dataOffset, -1);
+  corrupted[dataOffset] ^= 0xff;
+  assert.throws(() => listZipEntries(corrupted), /CRC mismatch for manifest\.json/);
+});
+test('ZIP reader rejects mismatched local and central metadata', () => {
+  const { createZip, listZipEntries } = require('../../tools/release/zip.js');
+  const original = createZip([{ name: 'manifest.json', data: Buffer.from('payload') }]);
+  const centralOffset = original.readUInt32LE(original.length - 6);
+  const mutations = [
+    ['method', (zip) => zip.writeUInt16LE(8, 8)],
+    ['CRC', (zip) => zip.writeUInt32LE((zip.readUInt32LE(14) + 1) >>> 0, 14)],
+    ['compressed size', (zip) => zip.writeUInt32LE(zip.readUInt32LE(18) + 1, 18)],
+    ['uncompressed size', (zip) => zip.writeUInt32LE(zip.readUInt32LE(22) + 1, 22)],
+    ['filename', (zip) => { zip[30] ^= 1; }],
+  ];
+  for (const [label, mutate] of mutations) {
+    const corrupted = Buffer.from(original);
+    mutate(corrupted);
+    assert.throws(() => listZipEntries(corrupted), new RegExp(`${label} mismatch`, 'i'), label);
+    assert.equal(corrupted.readUInt32LE(centralOffset), 0x02014b50);
+  }
+});
+
+function copyReleaseFixture(prefix, t) {
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  t.after(() => fs.rmSync(fixture, { recursive: true, force: true }));
+  fs.cpSync(root, fixture, {
+    recursive: true,
+    filter(source) {
+      const relative = path.relative(root, source).replaceAll('\\', '/');
+      return !relative.startsWith('.git') && !relative.startsWith('.claude') && !relative.startsWith('node_modules') && !relative.startsWith('dist');
+    },
+  });
+  return fixture;
+}
+
+test('package staging preserves an existing release when staged bytes fail verification', (t) => {
+  const { buildPackage } = require('../../tools/release/package.js');
+  const fixture = copyReleaseFixture('veilread-package-atomic-', t);
+  const dist = path.join(fixture, 'dist');
+  const output = path.join(dist, 'VeilRead-v1.0.0.zip');
+  const temporary = output + '.tmp';
+  fs.mkdirSync(dist, { recursive: true });
+  fs.writeFileSync(output, 'previous-valid-release');
+
+  const originalRead = fs.readFileSync;
+  fs.readFileSync = function (file, ...args) {
+    const data = originalRead.call(this, file, ...args);
+    if (path.resolve(String(file)) !== path.resolve(temporary) || !Buffer.isBuffer(data)) return data;
+    const corrupted = Buffer.from(data);
+    corrupted[0] ^= 0xff;
+    return corrupted;
+  };
+  t.after(() => { fs.readFileSync = originalRead; });
+
+  assert.throws(() => buildPackage(fixture), /staged ZIP differs from generated ZIP/);
+  assert.equal(fs.readFileSync(output, 'utf8'), 'previous-valid-release');
+  assert.equal(fs.existsSync(temporary), false);
+});
+
+test('package staging preserves an existing release when atomic rename fails', (t) => {
+  const { buildPackage } = require('../../tools/release/package.js');
+  const fixture = copyReleaseFixture('veilread-package-rename-', t);
+  const dist = path.join(fixture, 'dist');
+  const output = path.join(dist, 'VeilRead-v1.0.0.zip');
+  const temporary = output + '.tmp';
+  fs.mkdirSync(dist, { recursive: true });
+  fs.writeFileSync(output, 'previous-valid-release');
+
+  const originalRename = fs.renameSync;
+  fs.renameSync = () => { throw new Error('simulated atomic rename failure'); };
+  t.after(() => { fs.renameSync = originalRename; });
+
+  assert.throws(() => buildPackage(fixture), /simulated atomic rename failure/);
+  assert.equal(fs.readFileSync(output, 'utf8'), 'previous-valid-release');
+  assert.equal(fs.existsSync(temporary), false);
 });

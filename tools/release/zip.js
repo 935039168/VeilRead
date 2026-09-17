@@ -93,10 +93,35 @@ function listZipEntries(buffer) {
   const names = [];
   for (let index = 0; index < count; index++) {
     if (buffer.readUInt32LE(offset) !== 0x02014b50) throw new Error('invalid ZIP central directory');
+    const method = buffer.readUInt16LE(offset + 10);
+    const checksum = buffer.readUInt32LE(offset + 16);
+    const compressedSize = buffer.readUInt32LE(offset + 20);
+    const uncompressedSize = buffer.readUInt32LE(offset + 24);
     const nameLength = buffer.readUInt16LE(offset + 28);
     const extraLength = buffer.readUInt16LE(offset + 30);
     const commentLength = buffer.readUInt16LE(offset + 32);
-    names.push(buffer.toString('utf8', offset + 46, offset + 46 + nameLength));
+    const localOffset = buffer.readUInt32LE(offset + 42);
+    const centralName = buffer.subarray(offset + 46, offset + 46 + nameLength);
+    const name = centralName.toString('utf8');
+    if (buffer.readUInt32LE(localOffset) !== 0x04034b50) throw new Error(`invalid ZIP local header for ${name}`);
+    const localMethod = buffer.readUInt16LE(localOffset + 8);
+    const localChecksum = buffer.readUInt32LE(localOffset + 14);
+    const localCompressedSize = buffer.readUInt32LE(localOffset + 18);
+    const localUncompressedSize = buffer.readUInt32LE(localOffset + 22);
+    const localNameLength = buffer.readUInt16LE(localOffset + 26);
+    const localExtraLength = buffer.readUInt16LE(localOffset + 28);
+    const localName = buffer.subarray(localOffset + 30, localOffset + 30 + localNameLength);
+    if (localMethod !== method) throw new Error(`ZIP method mismatch for ${name}`);
+    if (localChecksum !== checksum) throw new Error(`ZIP CRC mismatch for ${name}`);
+    if (localCompressedSize !== compressedSize) throw new Error(`ZIP compressed size mismatch for ${name}`);
+    if (localUncompressedSize !== uncompressedSize) throw new Error(`ZIP uncompressed size mismatch for ${name}`);
+    if (!localName.equals(centralName)) throw new Error(`ZIP filename mismatch for ${name}`);
+    if (method !== 0) throw new Error(`unsupported ZIP compression for ${name}`);
+    if (compressedSize !== uncompressedSize) throw new Error(`ZIP STORE size mismatch for ${name}`);
+    const dataStart = localOffset + 30 + localNameLength + localExtraLength;
+    const dataEnd = dataStart + compressedSize;
+    if (dataEnd > buffer.length || crc32(buffer.subarray(dataStart, dataEnd)) !== checksum) throw new Error(`CRC mismatch for ${name}`);
+    names.push(name);
     offset += 46 + nameLength + extraLength + commentLength;
   }
   return names;
