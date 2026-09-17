@@ -1,14 +1,16 @@
 // VeilRead — 后台 service worker
 // 无状态：所有数据在 chrome.storage / IndexedDB，事件驱动，空闲即休眠
-importScripts('../lib/db.js', '../lib/store.js', '../lib/online.js');
+importScripts('../lib/db.js', '../lib/store.js', '../lib/reader-session.js', '../lib/online.js');
 
 'use strict';
 
 const db = globalThis.VeilRead.db;
 const store = globalThis.VeilRead.store;
+const readerSession = globalThis.VeilRead.readerSession;
 const online = globalThis.VeilRead.online;
 const SIDEBAR_TAB_KEY = 'vr.sidebarTabId';
 const PENDING_ONLINE_OPEN_PREFIX = 'vr.pendingOnlineOpen:';
+const READER_UI_KEY = 'vr.readerUiSession';
 
 const CONTENT_FILES = [
   'lib/store.js',
@@ -58,6 +60,148 @@ async function takeOnlineOpen(tabId) {
   return data || null;
 }
 
+let readerUiQueue = Promise.resolve();
+
+function withReaderUi(work) {
+  const next = readerUiQueue.then(work, work);
+  readerUiQueue = next.catch(() => {});
+  return next;
+}
+
+function publicReaderUiSnapshot(state) {
+  return {
+    mode: state.mode,
+    presentation: state.presentation,
+    panelTabId: state.panelTabId,
+    revision: state.revision,
+  };
+}
+
+async function loadReaderUiState() {
+  const area = sessionArea();
+  const [settings, saved] = await Promise.all([
+    store.getSettings(),
+    area.get(READER_UI_KEY),
+  ]);
+  const authoritativeMode = settings && settings.display && settings.display.mode;
+  const raw = saved[READER_UI_KEY];
+  const persistedMode = raw && raw.mode;
+  const normalized = readerSession.normalizeState(raw, persistedMode || authoritativeMode);
+  return readerSession.reconcileMode(normalized, authoritativeMode);
+}
+
+async function saveReaderUiState(state) {
+  await sessionArea().set({ [READER_UI_KEY]: state });
+  return state;
+}
+
+async function sendRegisteredReaderUi(state, message, { excludeTabId = null } = {}) {
+  let tabIds = Object.keys(state.tabDocuments)
+    .map(Number)
+    .filter((tabId) => Number.isInteger(tabId) && tabId !== excludeTabId);
+  let outgoing = message;
+
+  while (tabIds.length) {
+    const results = await Promise.allSettled(tabIds.map((tabId) => readerUiTabsSend(tabId, outgoing)));
+    const healthyTabIds = [];
+    let next = state;
+    results.forEach((result, index) => {
+      const tabId = tabIds[index];
+      if (result.status === 'rejected') {
+        next = readerSession.reduce(next, { type: 'message-failed', tabId });
+      } else {
+        healthyTabIds.push(tabId);
+      }
+    });
+    if (next.revision === state.revision) return state;
+
+    state = next;
+    await saveReaderUiState(state);
+    tabIds = healthyTabIds;
+    outgoing = {
+      ...message,
+      snapshot: publicReaderUiSnapshot(state),
+    };
+  }
+  return state;
+}
+
+function requireReaderUiSender(sender) {
+  const tabId = sender && sender.tab && sender.tab.id;
+  const documentId = sender && sender.documentId;
+  if (!Number.isInteger(tabId) || typeof documentId !== 'string' || !documentId) {
+    throw new Error('阅读器 UI 消息缺少标签页或文档标识');
+  }
+  return { tabId, documentId, documentLifecycle: sender.documentLifecycle };
+}
+
+async function handleReaderUiReady(sender) {
+  const { tabId, documentId, documentLifecycle } = requireReaderUiSender(sender);
+  return withReaderUi(async () => {
+    let state = await loadReaderUiState();
+    if (documentLifecycle && documentLifecycle !== 'active') {
+      await saveReaderUiState(state);
+      return publicReaderUiSnapshot(state);
+    }
+    state = readerSession.reduce(state, { type: 'ready', tabId, documentId });
+    await saveReaderUiState(state);
+    return publicReaderUiSnapshot(state);
+  });
+}
+
+async function handleReaderUiEvent(message, sender) {
+  const { tabId, documentId } = requireReaderUiSender(sender);
+  return withReaderUi(async () => {
+    let state = await loadReaderUiState();
+    if (state.tabDocuments[String(tabId)] !== documentId) return publicReaderUiSnapshot(state);
+
+    const eventTypes = {
+      'panel-opened': 'panel-opened',
+      'panel-hidden': 'panel-hidden',
+      'float-collapsed': 'float-collapsed',
+      'bead-restored': 'bead-restored',
+    };
+    const type = eventTypes[message.event];
+    if (!type) throw new Error('不支持的阅读器 UI 事件');
+
+    const previous = state;
+    state = readerSession.reduce(state, { type, tabId });
+    await saveReaderUiState(state);
+
+    const clearsBeads = type === 'bead-restored' ||
+      (type === 'panel-opened' && previous.presentation === 'bead');
+    if (type === 'float-collapsed' || clearsBeads) {
+      state = await sendRegisteredReaderUi(state, {
+        type: 'readerUi.sync',
+        snapshot: publicReaderUiSnapshot(state),
+      }, type === 'panel-opened' ? { excludeTabId: tabId } : undefined);
+    }
+
+    if (type === 'bead-restored' && state.presentation === 'panel' &&
+        state.panelTabId === tabId && state.tabDocuments[String(tabId)] === documentId) {
+      try {
+        const response = await tabsSend(tabId, { type: 'readerUi.openPanel', revision: state.revision });
+        if (response && response.ok === false) {
+          state = readerSession.reduce(state, { type: 'panel-hidden', tabId });
+          await saveReaderUiState(state);
+          state = await sendRegisteredReaderUi(state, {
+            type: 'readerUi.sync',
+            snapshot: publicReaderUiSnapshot(state),
+          });
+        }
+      } catch (err) {
+        state = readerSession.reduce(state, { type: 'message-failed', tabId });
+        await saveReaderUiState(state);
+        state = await sendRegisteredReaderUi(state, {
+          type: 'readerUi.sync',
+          snapshot: publicReaderUiSnapshot(state),
+        });
+      }
+    }
+    return publicReaderUiSnapshot(state);
+  });
+}
+
 function tabsSend(tabId, msg) {
   return new Promise((resolve, reject) => {
     chrome.tabs.sendMessage(tabId, msg, (res) => {
@@ -65,6 +209,14 @@ function tabsSend(tabId, msg) {
       else resolve(res);
     });
   });
+}
+
+async function readerUiTabsSend(tabId, msg) {
+  const response = await tabsSend(tabId, msg);
+  if (response && response.ok === false) {
+    throw new Error(response.error || '阅读器 UI 消息处理失败');
+  }
+  return response;
 }
 
 // 发消息到标签页；内容脚本未注入（如扩展安装前就打开的页面）时补注入后重试
@@ -182,6 +334,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
 async function handle(msg, sender) {
   switch (msg.type) {
+    case 'readerUi.ready': return handleReaderUiReady(sender);
+    case 'readerUi.event': return handleReaderUiEvent(msg, sender);
+
     // ---- 集中式 storage 写入：规避多标签页读-改-写竞争 ----
     case 'store.mutate': {
       const local = store._local;

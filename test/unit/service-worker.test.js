@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const online = require('../../lib/online.js');
+const readerSession = require('../../lib/reader-session.js');
 
 function loadWorker() {
   const calls = [];
@@ -40,7 +41,12 @@ function loadWorker() {
   const context = { chrome, console, URL, setTimeout, clearTimeout, Promise, Object, String, RegExp };
   context.globalThis = context;
   context.importScripts = () => {
-    context.VeilRead = { db: {}, store: {}, online };
+    context.VeilRead = {
+      db: {},
+      store: { async getSettings() { return { display: { mode: 'float' } }; }, _local: {} },
+      online,
+      readerSession,
+    };
   };
   vm.createContext(context);
   vm.runInContext(fs.readFileSync('background/service-worker.js', 'utf8'), context);
