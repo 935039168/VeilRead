@@ -631,6 +631,8 @@
       webCatalog: null,        // 在线书目录 [{t,url}]
       beadAnchor: null,        // 用户拖动后的恢复圆点右/下间距；null 时自动跟随悬浮窗
       beadSettingKey: undefined, // 最近一次接收的外部圆点设置，用于忽略异步旧值重放
+      beadAnchorGeneration: 0,
+      pendingBeadClearGeneration: null,
     };
     let saveTimer = null;
     let toastTimer = null;
@@ -644,11 +646,19 @@
       const d = s.display;
       const storedBead = d.float && d.float.bead;
       const storedBeadKey = beadSettingKey(storedBead);
+      const supersededLocalClear = storedBead == null &&
+        st.pendingBeadClearGeneration != null &&
+        st.beadAnchorGeneration !== st.pendingBeadClearGeneration;
+      if (storedBead == null && st.pendingBeadClearGeneration != null) {
+        st.pendingBeadClearGeneration = null;
+      }
       if (storedBeadKey !== st.beadSettingKey) {
         st.beadSettingKey = storedBeadKey;
-        st.beadAnchor = storedBead == null ? null : normalizeBeadAnchor(storedBead, {
-          width: window.innerWidth, height: window.innerHeight,
-        });
+        if (!supersededLocalClear) {
+          setBeadAnchor(storedBead == null ? null : normalizeBeadAnchor(storedBead, {
+            width: window.innerWidth, height: window.innerHeight,
+          }));
+        }
       }
       // 页面内无法主动创建原生侧边栏；它由 popup/设置页的用户手势打开。
       let mode;
@@ -709,6 +719,11 @@
     }
 
     function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+
+    function setBeadAnchor(anchor) {
+      st.beadAnchor = anchor;
+      st.beadAnchorGeneration += 1;
+    }
 
     // rAF 在后台标签页不触发，用 setTimeout 保证位置恢复
     function afterLayout(fn) { setTimeout(fn, 16); }
@@ -825,7 +840,7 @@
       const anchor = pointToBeadAnchor(position, {
         width: window.innerWidth, height: window.innerHeight,
       });
-      if (!st.beadAnchor) st.beadAnchor = anchor;
+      if (!st.beadAnchor) setBeadAnchor(anchor);
       return showBead(st.beadAnchor, { reason: 'collapse' });
     }
     function toggle(opts2) { return st.presentation === 'panel' ? hide() : show(opts2); }
@@ -1226,7 +1241,8 @@
             ...st.settings.display.float,
             x: null, y: null, w: 480, h: 600, bead: null,
           };
-          st.beadAnchor = null;
+          setBeadAnchor(null);
+          st.pendingBeadClearGeneration = null;
           host.patchSettings({ display: { float: st.settings.display.float } });
           applySettings(st.settings);
           closeOverlays();
@@ -1313,9 +1329,9 @@
           x: Math.round(parseFloat(bead.style.left) || 8),
           y: Math.round(parseFloat(bead.style.top) || 8),
         };
-        st.beadAnchor = pointToBeadAnchor(point, {
+        setBeadAnchor(pointToBeadAnchor(point, {
           width: window.innerWidth, height: window.innerHeight,
-        });
+        }));
         // 一并保存最新窗口几何，取消可能尚未落盘的旧坐标，避免它随后把圆点位置重置。
         const rect = panel.getBoundingClientRect();
         host.patchSettings({ display: { float: {
@@ -1406,7 +1422,8 @@
       if (wrap.dataset.mode !== 'float') return;
       const rect = panel.getBoundingClientRect();
       // 悬浮窗重新移动或缩放后，恢复圆点应重新依附它的最新位置。
-      st.beadAnchor = null;
+      setBeadAnchor(null);
+      st.pendingBeadClearGeneration = host.onGeometry ? st.beadAnchorGeneration : null;
       host.onGeometry && host.onGeometry({
         x: Math.round(rect.left), y: Math.round(rect.top),
         w: Math.round(rect.width), h: Math.round(rect.height),

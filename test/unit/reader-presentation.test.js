@@ -343,6 +343,48 @@ test('a panel collapse keeps its derived anchor when null settings are reapplied
   assert.equal(bead.style.top, '114px');
 });
 
+test('a delayed local bead reset cannot clear an anchor created by a later collapse', () => {
+  const geometryResets = [];
+  const { reader } = createReaderHarness({
+    onGeometry(geometry) { geometryResets.push({ ...geometry }); },
+  });
+  const settings = settingsFor('float');
+  settings.display.float.bead = { right: 260, bottom: 210 };
+  reader.applySettings(settings);
+  reader.show();
+
+  const grab = reader.panel.children.find((child) => child.classList.contains('vr-grab'));
+  grab.dispatch('pointerdown', {
+    button: 0, pointerId: 1, clientX: 700, clientY: 160, preventDefault() {},
+  });
+  grab.dispatch('pointermove', { clientX: 104, clientY: 110 });
+  grab.dispatch('pointerup', { clientX: 104, clientY: 110 });
+  assert.equal(geometryResets.length, 1);
+  assert.equal(geometryResets[0].bead, null);
+
+  reader.collapse();
+  const bead = reader.el.children.find((child) => child.classList.contains('vr-bead'));
+  assert.equal(bead.style.left, '532px');
+  assert.equal(bead.style.top, '652px');
+
+  const delayedAcknowledgement = settingsFor('float');
+  Object.assign(delayedAcknowledgement.display.float, geometryResets[0]);
+  reader.applySettings(delayedAcknowledgement);
+  assert.equal(bead.style.left, '532px');
+  assert.equal(bead.style.top, '652px');
+
+  const externalAnchor = settingsFor('float');
+  externalAnchor.display.float.bead = { right: 100, bottom: 100 };
+  reader.applySettings(externalAnchor);
+  assert.equal(bead.style.left, '1060px');
+  assert.equal(bead.style.top, '760px');
+
+  const externalClear = settingsFor('float');
+  reader.applySettings(externalClear);
+  assert.equal(bead.style.left, '1152px');
+  assert.equal(bead.style.top, '852px');
+});
+
 test('a distant pointerup without pointermove drags the bead instead of restoring', () => {
   const patches = [];
   let restores = 0;
