@@ -145,6 +145,44 @@ test('bead anchors keep right and bottom offsets across viewport changes', () =>
   );
 });
 
+test('invalid dragged bead points fall back to the default bottom-right anchor', () => {
+  const { pointToBeadAnchor } = loadReaderApi().readerUtils;
+  const viewport = { width: 1200, height: 900 };
+
+  for (const point of [null, {}, { x: NaN, y: 650 }, { x: 900, y: Infinity }]) {
+    assert.deepEqual({ ...pointToBeadAnchor(point, viewport) }, { right: 8, bottom: 8 });
+  }
+});
+
+test('out-of-range legacy bead points fall back as one invalid anchor', () => {
+  const { normalizeBeadAnchor } = loadReaderApi().readerUtils;
+  const viewport = { width: 1200, height: 900 };
+
+  for (const anchor of [
+    { x: 7, y: 650 },
+    { x: 1153, y: 650 },
+    { x: 900, y: 7 },
+    { x: 900, y: 853 },
+  ]) {
+    assert.deepEqual({ ...normalizeBeadAnchor(anchor, viewport) }, { right: 8, bottom: 8 });
+  }
+});
+
+test('visual clamping does not overwrite the stored bead anchor', () => {
+  const { beadAnchorToPoint } = loadReaderApi().readerUtils;
+  const anchor = { right: 500, bottom: 400 };
+
+  assert.deepEqual(
+    { ...beadAnchorToPoint(anchor, { width: 320, height: 240 }) },
+    { x: 8, y: 8 }
+  );
+  assert.deepEqual(anchor, { right: 500, bottom: 400 });
+  assert.deepEqual(
+    { ...beadAnchorToPoint(anchor, { width: 1200, height: 900 }) },
+    { x: 660, y: 460 }
+  );
+});
+
 test('mode changes clear incompatible beads and page panels', () => {
   const { reader } = createReaderHarness();
   reader.applySettings(settingsFor('float'));

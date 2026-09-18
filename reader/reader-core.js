@@ -499,10 +499,13 @@
   }
 
   function pointToBeadAnchor(point, viewport) {
+    if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) {
+      return { right: BEAD_SAFE_INSET, bottom: BEAD_SAFE_INSET };
+    }
     const vw = Number(viewport && viewport.width) || 0;
     const vh = Number(viewport && viewport.height) || 0;
-    const x = clampBeadCoordinate(Number(point && point.x) || BEAD_SAFE_INSET, vw);
-    const y = clampBeadCoordinate(Number(point && point.y) || BEAD_SAFE_INSET, vh);
+    const x = clampBeadCoordinate(point.x, vw);
+    const y = clampBeadCoordinate(point.y, vh);
     return {
       right: Math.max(BEAD_SAFE_INSET, Math.round(vw - BEAD_SIZE - x)),
       bottom: Math.max(BEAD_SAFE_INSET, Math.round(vh - BEAD_SIZE - y)),
@@ -516,6 +519,14 @@
       return { right, bottom };
     }
     if (anchor && Number.isFinite(anchor.x) && Number.isFinite(anchor.y)) {
+      const vw = Number(viewport && viewport.width) || 0;
+      const vh = Number(viewport && viewport.height) || 0;
+      const maxX = Math.max(BEAD_SAFE_INSET, vw - BEAD_SIZE - BEAD_SAFE_INSET);
+      const maxY = Math.max(BEAD_SAFE_INSET, vh - BEAD_SIZE - BEAD_SAFE_INSET);
+      if (anchor.x < BEAD_SAFE_INSET || anchor.x > maxX ||
+          anchor.y < BEAD_SAFE_INSET || anchor.y > maxY) {
+        return { right: BEAD_SAFE_INSET, bottom: BEAD_SAFE_INSET };
+      }
       return pointToBeadAnchor(anchor, viewport);
     }
     return { right: BEAD_SAFE_INSET, bottom: BEAD_SAFE_INSET };
