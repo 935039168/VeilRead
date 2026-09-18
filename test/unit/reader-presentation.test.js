@@ -37,31 +37,53 @@ class FakeElement {
   append(...nodes) { nodes.forEach((node) => this.appendChild(node)); }
   appendChild(node) { this.children.push(node); node.parentNode = this; return node; }
   addEventListener(type, listener) { (this.listeners[type] ||= []).push(listener); }
-  removeEventListener() {}
+  removeEventListener(type, listener) {
+    this.listeners[type] = (this.listeners[type] || []).filter((item) => item !== listener);
+  }
+  dispatch(type, event = {}) {
+    for (const listener of [...(this.listeners[type] || [])]) listener(event);
+  }
   setAttribute(name, value) { this[name] = String(value); }
   querySelector() { return null; }
   contains(node) { return this === node || this.children.some((child) => child.contains && child.contains(node)); }
-  getBoundingClientRect() { return { left: 100, top: 80, width: 480, height: 600, right: 580, bottom: 680 }; }
+  getBoundingClientRect() {
+    const left = Number.parseFloat(this.style.left);
+    const top = Number.parseFloat(this.style.top);
+    const width = this.classList.contains('vr-bead') ? 40 : (Number.parseFloat(this.style.width) || this.offsetWidth);
+    const height = this.classList.contains('vr-bead') ? 40 : (Number.parseFloat(this.style.height) || this.offsetHeight);
+    const x = Number.isFinite(left) ? left : 100;
+    const y = Number.isFinite(top) ? top : 80;
+    return { left: x, top: y, width, height, right: x + width, bottom: y + height };
+  }
   setPointerCapture() {}
 }
 
-function loadReaderApi() {
+function loadReaderContext(viewport = {}) {
   const document = {
     head: new FakeElement('head'),
     createElement: (tag) => new FakeElement(tag),
     addEventListener() {},
     removeEventListener() {},
   };
-  const context = { document, console, setTimeout, clearTimeout, innerWidth: 1200, innerHeight: 900 };
+  const context = {
+    document, console, setTimeout, clearTimeout,
+    innerWidth: viewport.width || 1200,
+    innerHeight: viewport.height || 900,
+  };
   context.window = context;
   context.globalThis = context;
   vm.createContext(context);
   vm.runInContext(fs.readFileSync('reader/reader-core.js', 'utf8'), context);
-  return context.VeilRead;
+  return context;
 }
 
-function createReaderHarness(hostOverrides = {}) {
-  const api = loadReaderApi();
+function loadReaderApi() {
+  return loadReaderContext().VeilRead;
+}
+
+function createReaderHarness(hostOverrides = {}, viewport = {}) {
+  const context = loadReaderContext(viewport);
+  const api = context.VeilRead;
   const mount = new FakeElement('div');
   const events = [];
   const host = {
@@ -70,7 +92,13 @@ function createReaderHarness(hostOverrides = {}) {
     ...hostOverrides,
   };
   const reader = api.createReader({ mount, env: 'content', host });
-  return { api, reader, events };
+  return {
+    api, reader, events,
+    setViewport(width, height) {
+      context.innerWidth = width;
+      context.innerHeight = height;
+    },
+  };
 }
 
 function settingsFor(mode) {
@@ -213,17 +241,68 @@ test('showBead and hideBead are idempotent', () => {
   assert.equal(events.filter((event) => event.presentation === 'hidden').length, 1);
 });
 
-test('a synchronized bead uses its stored position on a fresh page', () => {
-  const { reader } = createReaderHarness();
+test('a synchronized bead places default, canonical, and legacy anchors on a fresh page', () => {
+  for (const { saved, left, top } of [
+    { saved: null, left: 1152, top: 852 },
+    { saved: { right: 260, bottom: 210 }, left: 900, top: 650 },
+    { saved: { x: 222, y: 333 }, left: 222, top: 333 },
+  ]) {
+    const { reader } = createReaderHarness();
+    const settings = settingsFor('float');
+    settings.display.float.bead = saved;
+    reader.applySettings(settings);
+
+    reader.showBead(null, { notify: false, reason: 'sync' });
+
+    const bead = reader.el.children.find((child) => child.classList.contains('vr-bead'));
+    assert.equal(bead.style.left, `${left}px`);
+    assert.equal(bead.style.top, `${top}px`);
+  }
+});
+
+test('reapplying settings redraws a visible bead without changing its canonical anchor', () => {
+  const { reader, setViewport } = createReaderHarness();
   const settings = settingsFor('float');
-  settings.display.float.bead = { x: 222, y: 333 };
+  const anchor = { right: 500, bottom: 400 };
+  settings.display.float.bead = anchor;
   reader.applySettings(settings);
-
   reader.showBead(null, { notify: false, reason: 'sync' });
-
   const bead = reader.el.children.find((child) => child.classList.contains('vr-bead'));
-  assert.equal(bead.style.left, '222px');
-  assert.equal(bead.style.top, '333px');
+
+  setViewport(320, 240);
+  reader.applySettings(settings);
+  assert.equal(bead.style.left, '8px');
+  assert.equal(bead.style.top, '8px');
+  assert.deepEqual(anchor, { right: 500, bottom: 400 });
+
+  setViewport(1200, 900);
+  reader.applySettings(settings);
+  assert.equal(bead.style.left, '660px');
+  assert.equal(bead.style.top, '460px');
+  assert.deepEqual(anchor, { right: 500, bottom: 400 });
+});
+
+test('dragging a bead persists a canonical anchor that survives viewport changes', () => {
+  const patches = [];
+  const { reader, setViewport } = createReaderHarness({
+    patchSettings(patch) { patches.push(patch); },
+  });
+  const settings = settingsFor('float');
+  reader.applySettings(settings);
+  reader.showBead(null, { notify: false, reason: 'sync' });
+  const bead = reader.el.children.find((child) => child.classList.contains('vr-bead'));
+
+  bead.dispatch('pointerdown', {
+    button: 0, pointerId: 1, clientX: 1162, clientY: 862, preventDefault() {},
+  });
+  bead.dispatch('pointermove', { clientX: 910, clientY: 660 });
+  bead.dispatch('pointerup');
+
+  assert.deepEqual({ ...patches.at(-1).display.float.bead }, { right: 260, bottom: 210 });
+  setViewport(1000, 700);
+  reader.showBead(null, { notify: false, reason: 'resize' });
+  assert.equal(bead.style.left, '700px');
+  assert.equal(bead.style.top, '450px');
 });
 
 test('a stale TXT open cannot overwrite the latest requested book', async () => {
