@@ -26,6 +26,44 @@ test('public site audit reports broken local links', (t) => {
   assert.match(output, /site\/index\.html: broken local link \.\/missing-page\//);
   assert.match(output, /site\/language\.js: missing language router/);
 });
+test('public site audit requires every public page', (t) => {
+  const { auditPublicSite } = require('../../tools/release/audit.js');
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'veilread-pages-'));
+  t.after(() => fs.rmSync(fixture, { recursive: true, force: true }));
+  fs.cpSync(path.join(root, 'site'), path.join(fixture, 'site'), { recursive: true });
+  const requiredPages = [
+    'site/index.html',
+    'site/zh-CN/index.html',
+    'site/en/index.html',
+    'site/privacy/zh-CN/index.html',
+    'site/privacy/en/index.html',
+    'site/support/zh-CN/index.html',
+    'site/support/en/index.html',
+    'site/rights/index.html',
+  ];
+  for (const relative of requiredPages) fs.rmSync(path.join(fixture, relative));
+
+  const output = auditPublicSite(fixture).join('\n');
+  for (const relative of requiredPages) {
+    assert.match(output, new RegExp(`${relative.replaceAll('.', '\\.')}: missing public page`));
+  }
+});
+test('public site audit requires localized Chrome and Edge coming-soon statuses', (t) => {
+  const { auditPublicSite } = require('../../tools/release/audit.js');
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'veilread-status-'));
+  t.after(() => fs.rmSync(fixture, { recursive: true, force: true }));
+  fs.cpSync(path.join(root, 'site'), path.join(fixture, 'site'), { recursive: true });
+  const zhProduct = path.join(fixture, 'site/zh-CN/index.html');
+  const enProduct = path.join(fixture, 'site/en/index.html');
+  fs.writeFileSync(zhProduct, fs.readFileSync(zhProduct, 'utf8').replaceAll('即将上线', '现已上线'));
+  fs.writeFileSync(enProduct, fs.readFileSync(enProduct, 'utf8').replaceAll('Coming soon', 'Available now'));
+
+  const output = auditPublicSite(fixture).join('\n');
+  assert.match(output, /site\/zh-CN\/index\.html: missing Chrome status 即将上线/);
+  assert.match(output, /site\/zh-CN\/index\.html: missing Edge status 即将上线/);
+  assert.match(output, /site\/en\/index\.html: missing Chrome status Coming soon/);
+  assert.match(output, /site\/en\/index\.html: missing Edge status Coming soon/);
+});
 test('store documents cover listings, permissions, privacy, and reviewer guidance', () => {
   const { auditStoreDocuments } = require('../../tools/release/audit.js');
   assert.deepEqual(auditStoreDocuments(root), []);
@@ -113,6 +151,7 @@ test('workflow configuration verifies releases and deploys only the static site'
   for (const text of ['actions/configure-pages@', 'actions/upload-pages-artifact@', 'actions/deploy-pages@', 'path: site', 'contents: read', 'pages: write', 'id-token: write']) {
     assert.ok(pages.includes(text), `Pages workflow should contain ${text}`);
   }
+  assert.match(pages, /uses:\s*actions\/configure-pages@v5\s*\r?\n\s*with:\s*\r?\n\s*enablement:\s*true/);
   assert.doesNotMatch(ci + pages, /CLIENT_SECRET|API_KEY|CHROME_WEB_STORE|EDGE_PRODUCT/i);
 });
 test('product home selects a localized entry and both languages remain switchable', () => {

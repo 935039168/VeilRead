@@ -91,6 +91,20 @@ function auditPublicSite(root) {
     }
   }
 
+  const storeStatuses = [
+    ['site/zh-CN/index.html', '即将上线'],
+    ['site/en/index.html', 'Coming soon'],
+  ];
+  for (const [relative, status] of storeStatuses) {
+    const file = path.join(root, relative);
+    if (!fs.existsSync(file)) continue;
+    const html = fs.readFileSync(file, 'utf8');
+    for (const browser of ['Chrome', 'Edge']) {
+      const pattern = new RegExp(`${browser}[^<]{0,20}${status}`, 'i');
+      if (!pattern.test(html)) errors.push(`${relative}: missing ${browser} status ${status}`);
+    }
+  }
+
   const privacyFiles = ['site/privacy/zh-CN/index.html', 'site/privacy/en/index.html'];
   const privacyFacts = ['2026-09-16', 'chrome.storage.local', 'IndexedDB', 'github.com/935039168/VeilRead/issues'];
   for (const relative of privacyFiles) {
