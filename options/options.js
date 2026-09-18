@@ -256,16 +256,6 @@ function pctOf(meta, prog) {
   return Math.min(100, Math.round(((prog.chapter + (prog.ratio || 0)) / (meta.chapterCount || 1)) * 100));
 }
 
-function tabSendViaSW(tab, msg) {
-  return new Promise((resolve, reject) => {
-    chrome.runtime.sendMessage({ type: 'tabSend', tabId: tab.id, url: tab.url || '', msg }, (res) => {
-      if (chrome.runtime.lastError) { reject(new Error(chrome.runtime.lastError.message)); return; }
-      if (res && res.ok === false) reject(new Error(res.error || '发送失败'));
-      else resolve(res ? res.data : null);
-    });
-  });
-}
-
 function webBookInputs(values) {
   const fields = document.createElement('div');
   fields.className = 'web-book-fields';
@@ -381,29 +371,6 @@ async function renderBooks() {
     const ops = document.createElement('div');
     ops.className = 'ops';
 
-    const open = document.createElement('button');
-    open.className = 'btn';
-    open.textContent = '打开';
-    open.onclick = async () => {
-      const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-      const tab = tabs && tabs[0];
-      if (tab && tab.id != null) {
-        try {
-          const msg = isWeb
-            ? { type: 'openWebBook', url: webChapter, bookUrl: m.url, bookTitle: m.title }
-            : { type: 'open', bookId: m.id };
-          if (!isWeb) await store.setCurrent(m.id);
-          const res = await tabSendViaSW(tab, msg);
-          if (res && res.ok) return;
-          throw new Error((res && res.error) || '打开请求未完成');
-        } catch (e) {
-          window.alert((isWeb ? '打开在线书失败：' : '打开书籍失败：') + String(e && e.message || e || '未知错误'));
-          return;
-        }
-      }
-      window.alert('当前标签页不支持注入（浏览器内部页）。请先切换到任意普通网页，再点“打开”。');
-    };
-
     const rename = document.createElement('button');
     rename.className = 'btn plain';
     if (isWeb) {
@@ -446,7 +413,7 @@ async function renderBooks() {
       renderBooks();
     };
 
-    ops.append(open, rename, reset, del);
+    ops.append(rename, reset, del);
     row.append(info, ops);
     list.appendChild(row);
   }
