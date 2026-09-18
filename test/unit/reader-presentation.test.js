@@ -59,6 +59,10 @@ class FakeElement {
 }
 
 function loadReaderContext(viewport = {}) {
+  let now = Date.now();
+  class FakeDate extends Date {
+    static now() { return now; }
+  }
   const document = {
     head: new FakeElement('head'),
     createElement: (tag) => new FakeElement(tag),
@@ -66,7 +70,7 @@ function loadReaderContext(viewport = {}) {
     removeEventListener() {},
   };
   const context = {
-    document, console, setTimeout, clearTimeout,
+    document, console, setTimeout, clearTimeout, Date: FakeDate,
     innerWidth: viewport.width || 1200,
     innerHeight: viewport.height || 900,
   };
@@ -74,6 +78,7 @@ function loadReaderContext(viewport = {}) {
   context.globalThis = context;
   vm.createContext(context);
   vm.runInContext(fs.readFileSync('reader/reader-core.js', 'utf8'), context);
+  context.advanceTime = (milliseconds) => { now += milliseconds; };
   return context;
 }
 
@@ -98,6 +103,7 @@ function createReaderHarness(hostOverrides = {}, viewport = {}) {
       context.innerWidth = width;
       context.innerHeight = height;
     },
+    advanceTime(milliseconds) { context.advanceTime(milliseconds); },
   };
 }
 
@@ -381,6 +387,62 @@ test('a delayed local bead reset cannot clear an anchor created by a later colla
 
   const externalClear = settingsFor('float');
   reader.applySettings(externalClear);
+  assert.equal(bead.style.left, '1152px');
+  assert.equal(bead.style.top, '852px');
+});
+
+test('an external anchor after a local clear does not make the following null look stale', () => {
+  const geometryResets = [];
+  const { reader } = createReaderHarness({
+    onGeometry(geometry) { geometryResets.push({ ...geometry }); },
+  });
+  const settings = settingsFor('float');
+  settings.display.float.bead = { right: 260, bottom: 210 };
+  reader.applySettings(settings);
+  reader.show();
+
+  const grab = reader.panel.children.find((child) => child.classList.contains('vr-grab'));
+  grab.dispatch('pointerdown', {
+    button: 0, pointerId: 1, clientX: 700, clientY: 160, preventDefault() {},
+  });
+  grab.dispatch('pointermove', { clientX: 104, clientY: 110 });
+  grab.dispatch('pointerup', { clientX: 104, clientY: 110 });
+  assert.equal(geometryResets.length, 1);
+
+  const externalAnchor = settingsFor('float');
+  externalAnchor.display.float.bead = { right: 100, bottom: 100 };
+  reader.applySettings(externalAnchor);
+  reader.showBead(null, { notify: false, reason: 'sync' });
+  const bead = reader.el.children.find((child) => child.classList.contains('vr-bead'));
+  assert.equal(bead.style.left, '1060px');
+  assert.equal(bead.style.top, '760px');
+
+  const delayedClear = settingsFor('float');
+  Object.assign(delayedClear.display.float, geometryResets[0]);
+  reader.applySettings(delayedClear);
+  assert.equal(bead.style.left, '1152px');
+  assert.equal(bead.style.top, '852px');
+});
+
+test('an unacknowledged local clear expires before a future external null', () => {
+  const { reader, advanceTime } = createReaderHarness({ onGeometry() {} });
+  const settings = settingsFor('float');
+  reader.applySettings(settings);
+  reader.show();
+
+  const grab = reader.panel.children.find((child) => child.classList.contains('vr-grab'));
+  grab.dispatch('pointerdown', {
+    button: 0, pointerId: 1, clientX: 700, clientY: 160, preventDefault() {},
+  });
+  grab.dispatch('pointermove', { clientX: 104, clientY: 110 });
+  grab.dispatch('pointerup', { clientX: 104, clientY: 110 });
+  reader.collapse();
+  const bead = reader.el.children.find((child) => child.classList.contains('vr-bead'));
+  assert.equal(bead.style.left, '532px');
+  assert.equal(bead.style.top, '652px');
+
+  advanceTime(2000);
+  reader.applySettings(settingsFor('float'));
   assert.equal(bead.style.left, '1152px');
   assert.equal(bead.style.top, '852px');
 });

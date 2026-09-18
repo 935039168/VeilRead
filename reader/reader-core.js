@@ -492,6 +492,7 @@
 
   const BEAD_SIZE = 40;
   const BEAD_SAFE_INSET = 8;
+  const BEAD_CLEAR_ACK_TTL_MS = 1000;
 
   function clampBeadCoordinate(value, viewportSize) {
     const max = Math.max(BEAD_SAFE_INSET, viewportSize - BEAD_SIZE - BEAD_SAFE_INSET);
@@ -631,8 +632,8 @@
       webCatalog: null,        // 在线书目录 [{t,url}]
       beadAnchor: null,        // 用户拖动后的恢复圆点右/下间距；null 时自动跟随悬浮窗
       beadSettingKey: undefined, // 最近一次接收的外部圆点设置，用于忽略异步旧值重放
-      beadAnchorGeneration: 0,
-      pendingBeadClearGeneration: null,
+      localBeadAnchorGeneration: 0,
+      pendingBeadClear: null,
     };
     let saveTimer = null;
     let toastTimer = null;
@@ -646,18 +647,27 @@
       const d = s.display;
       const storedBead = d.float && d.float.bead;
       const storedBeadKey = beadSettingKey(storedBead);
-      const supersededLocalClear = storedBead == null &&
-        st.pendingBeadClearGeneration != null &&
-        st.beadAnchorGeneration !== st.pendingBeadClearGeneration;
-      if (storedBead == null && st.pendingBeadClearGeneration != null) {
-        st.pendingBeadClearGeneration = null;
+      let supersededLocalClear = false;
+      let forceStoredBead = false;
+      if (st.pendingBeadClear) {
+        if (Date.now() > st.pendingBeadClear.expiresAt) {
+          st.pendingBeadClear = null;
+          forceStoredBead = storedBead == null;
+        } else if (storedBead == null) {
+          supersededLocalClear = st.localBeadAnchorGeneration !==
+            st.pendingBeadClear.localAnchorGeneration;
+          st.pendingBeadClear = null;
+        }
       }
-      if (storedBeadKey !== st.beadSettingKey) {
+      if (storedBead != null && storedBeadKey !== st.beadSettingKey) {
+        st.pendingBeadClear = null;
+      }
+      if (storedBeadKey !== st.beadSettingKey || forceStoredBead) {
         st.beadSettingKey = storedBeadKey;
         if (!supersededLocalClear) {
           setBeadAnchor(storedBead == null ? null : normalizeBeadAnchor(storedBead, {
             width: window.innerWidth, height: window.innerHeight,
-          }));
+          }), false);
         }
       }
       // 页面内无法主动创建原生侧边栏；它由 popup/设置页的用户手势打开。
@@ -720,9 +730,9 @@
 
     function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
 
-    function setBeadAnchor(anchor) {
+    function setBeadAnchor(anchor, local = true) {
       st.beadAnchor = anchor;
-      st.beadAnchorGeneration += 1;
+      if (local) st.localBeadAnchorGeneration += 1;
     }
 
     // rAF 在后台标签页不触发，用 setTimeout 保证位置恢复
@@ -1242,7 +1252,7 @@
             x: null, y: null, w: 480, h: 600, bead: null,
           };
           setBeadAnchor(null);
-          st.pendingBeadClearGeneration = null;
+          st.pendingBeadClear = null;
           host.patchSettings({ display: { float: st.settings.display.float } });
           applySettings(st.settings);
           closeOverlays();
@@ -1422,8 +1432,11 @@
       if (wrap.dataset.mode !== 'float') return;
       const rect = panel.getBoundingClientRect();
       // 悬浮窗重新移动或缩放后，恢复圆点应重新依附它的最新位置。
-      setBeadAnchor(null);
-      st.pendingBeadClearGeneration = host.onGeometry ? st.beadAnchorGeneration : null;
+      setBeadAnchor(null, false);
+      st.pendingBeadClear = host.onGeometry ? {
+        localAnchorGeneration: st.localBeadAnchorGeneration,
+        expiresAt: Date.now() + BEAD_CLEAR_ACK_TTL_MS,
+      } : null;
       host.onGeometry && host.onGeometry({
         x: Math.round(rect.left), y: Math.round(rect.top),
         w: Math.round(rect.width), h: Math.round(rect.height),
