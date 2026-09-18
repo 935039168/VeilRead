@@ -111,6 +111,40 @@ test('edge and sidebar modes never collapse to the floating recovery bead', () =
   assert.equal(getPanelAutoHideAction(settings, 'disabled'), null);
 });
 
+test('bead anchors keep right and bottom offsets across viewport changes', () => {
+  const {
+    normalizeBeadAnchor,
+    beadAnchorToPoint,
+    pointToBeadAnchor,
+  } = loadReaderApi().readerUtils;
+  const viewport = { width: 1200, height: 900 };
+
+  assert.deepEqual({ ...normalizeBeadAnchor(null, viewport) }, { right: 8, bottom: 8 });
+  assert.deepEqual(
+    { ...normalizeBeadAnchor({ right: 260, bottom: 210 }, viewport) },
+    { right: 260, bottom: 210 }
+  );
+  assert.deepEqual(
+    { ...beadAnchorToPoint({ right: 500, bottom: 400 }, { width: 320, height: 240 }) },
+    { x: 8, y: 8 }
+  );
+  assert.deepEqual(
+    { ...normalizeBeadAnchor({ x: 900, y: 650 }, viewport) },
+    { right: 260, bottom: 210 }
+  );
+
+  const anchor = pointToBeadAnchor({ x: 900, y: 650 }, viewport);
+  assert.deepEqual({ ...anchor }, { right: 260, bottom: 210 });
+  assert.deepEqual(
+    { ...beadAnchorToPoint(anchor, { width: 1000, height: 700 }) },
+    { x: 700, y: 450 }
+  );
+  assert.deepEqual(
+    { ...pointToBeadAnchor({ x: 8, y: 8 }, { width: 1000, height: 700 }) },
+    { right: 952, bottom: 652 }
+  );
+});
+
 test('mode changes clear incompatible beads and page panels', () => {
   const { reader } = createReaderHarness();
   reader.applySettings(settingsFor('float'));

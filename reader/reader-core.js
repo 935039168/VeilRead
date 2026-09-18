@@ -490,11 +490,53 @@
     };
   }
 
+  const BEAD_SIZE = 40;
+  const BEAD_SAFE_INSET = 8;
+
+  function clampBeadCoordinate(value, viewportSize) {
+    const max = Math.max(BEAD_SAFE_INSET, viewportSize - BEAD_SIZE - BEAD_SAFE_INSET);
+    return Math.round(Math.max(BEAD_SAFE_INSET, Math.min(max, value)));
+  }
+
+  function pointToBeadAnchor(point, viewport) {
+    const vw = Number(viewport && viewport.width) || 0;
+    const vh = Number(viewport && viewport.height) || 0;
+    const x = clampBeadCoordinate(Number(point && point.x) || BEAD_SAFE_INSET, vw);
+    const y = clampBeadCoordinate(Number(point && point.y) || BEAD_SAFE_INSET, vh);
+    return {
+      right: Math.max(BEAD_SAFE_INSET, Math.round(vw - BEAD_SIZE - x)),
+      bottom: Math.max(BEAD_SAFE_INSET, Math.round(vh - BEAD_SIZE - y)),
+    };
+  }
+
+  function normalizeBeadAnchor(anchor, viewport) {
+    const right = anchor && anchor.right;
+    const bottom = anchor && anchor.bottom;
+    if (Number.isFinite(right) && right >= 0 && Number.isFinite(bottom) && bottom >= 0) {
+      return { right, bottom };
+    }
+    if (anchor && Number.isFinite(anchor.x) && Number.isFinite(anchor.y)) {
+      return pointToBeadAnchor(anchor, viewport);
+    }
+    return { right: BEAD_SAFE_INSET, bottom: BEAD_SAFE_INSET };
+  }
+
+  function beadAnchorToPoint(anchor, viewport) {
+    const normalized = normalizeBeadAnchor(anchor, viewport);
+    const vw = Number(viewport && viewport.width) || 0;
+    const vh = Number(viewport && viewport.height) || 0;
+    return {
+      x: clampBeadCoordinate(vw - BEAD_SIZE - normalized.right, vw),
+      y: clampBeadCoordinate(vh - BEAD_SIZE - normalized.bottom, vh),
+    };
+  }
+
   globalThis.VeilRead.readerUtils = {
     snapFloatGeometry, shouldFloatAutoHide, isFloatGeometryPatch, styleHintForMode, stepReaderSetting,
     shouldDeferAppearanceSync, didPointerMove, getCollapseBeadPosition, resolveReaderAppearance,
     getReaderLayout, applyReaderLayout, normalizeReaderPresentation, getPanelAutoHideAction,
     createCancelableDelay, createEdgeTriggerState,
+    normalizeBeadAnchor, beadAnchorToPoint, pointToBeadAnchor,
   };
 
   return function createReader(opts) {
