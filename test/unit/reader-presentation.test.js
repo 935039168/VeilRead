@@ -282,6 +282,109 @@ test('reapplying settings redraws a visible bead without changing its canonical 
   assert.deepEqual(anchor, { right: 500, bottom: 400 });
 });
 
+test('a legacy bead is migrated once and keeps its anchor when old settings are reapplied', () => {
+  const { reader, setViewport } = createReaderHarness();
+  const settings = settingsFor('float');
+  settings.display.float.bead = { x: 900, y: 650 };
+  reader.applySettings(settings);
+  reader.showBead(null, { notify: false, reason: 'sync' });
+  const bead = reader.el.children.find((child) => child.classList.contains('vr-bead'));
+
+  setViewport(1000, 700);
+  reader.applySettings(settings);
+
+  assert.equal(bead.style.left, '700px');
+  assert.equal(bead.style.top, '450px');
+});
+
+test('stale settings do not overwrite a dragged anchor but a new synchronized anchor does', () => {
+  const { reader } = createReaderHarness();
+  const staleSettings = settingsFor('float');
+  reader.applySettings(staleSettings);
+  reader.showBead(null, { notify: false, reason: 'sync' });
+  const bead = reader.el.children.find((child) => child.classList.contains('vr-bead'));
+
+  bead.dispatch('pointerdown', {
+    button: 0, pointerId: 1, clientX: 1162, clientY: 862, preventDefault() {},
+  });
+  bead.dispatch('pointermove', { clientX: 910, clientY: 660 });
+  bead.dispatch('pointerup', { clientX: 910, clientY: 660 });
+  reader.applySettings(staleSettings);
+  assert.equal(bead.style.left, '900px');
+  assert.equal(bead.style.top, '650px');
+
+  const synchronizedSettings = settingsFor('float');
+  synchronizedSettings.display.float.bead = { right: 100, bottom: 100 };
+  reader.applySettings(synchronizedSettings);
+  assert.equal(bead.style.left, '1060px');
+  assert.equal(bead.style.top, '760px');
+});
+
+test('a panel collapse keeps its derived anchor when null settings are reapplied after resize', () => {
+  const { reader, setViewport } = createReaderHarness();
+  const settings = settingsFor('float');
+  settings.display.float.x = 0;
+  settings.display.float.y = 100;
+  reader.applySettings(settings);
+  reader.show();
+  reader.collapse();
+  const bead = reader.el.children.find((child) => child.classList.contains('vr-bead'));
+  assert.equal(bead.style.left, '8px');
+  assert.equal(bead.style.top, '114px');
+
+  setViewport(1000, 700);
+  reader.applySettings(settings);
+  assert.equal(bead.style.left, '8px');
+  assert.equal(bead.style.top, '8px');
+
+  setViewport(1200, 900);
+  reader.applySettings(settings);
+  assert.equal(bead.style.left, '8px');
+  assert.equal(bead.style.top, '114px');
+});
+
+test('a distant pointerup without pointermove drags the bead instead of restoring', () => {
+  const patches = [];
+  let restores = 0;
+  const { reader } = createReaderHarness({
+    patchSettings(patch) { patches.push(patch); },
+    onBeadRestoreRequested() { restores += 1; },
+  });
+  reader.applySettings(settingsFor('float'));
+  reader.showBead(null, { notify: false, reason: 'sync' });
+  const bead = reader.el.children.find((child) => child.classList.contains('vr-bead'));
+
+  bead.dispatch('pointerdown', {
+    button: 0, pointerId: 1, clientX: 1162, clientY: 862, preventDefault() {},
+  });
+  bead.dispatch('pointerup', { clientX: 910, clientY: 660 });
+
+  assert.equal(restores, 0);
+  assert.equal(bead.style.left, '900px');
+  assert.equal(bead.style.top, '650px');
+  assert.deepEqual({ ...patches.at(-1).display.float.bead }, { right: 260, bottom: 210 });
+});
+
+test('bead dragging includes the final movement reported by pointerup', () => {
+  const patches = [];
+  const { reader } = createReaderHarness({
+    patchSettings(patch) { patches.push(patch); },
+  });
+  reader.applySettings(settingsFor('float'));
+  reader.showBead(null, { notify: false, reason: 'sync' });
+  const bead = reader.el.children.find((child) => child.classList.contains('vr-bead'));
+
+  bead.dispatch('pointerdown', {
+    button: 0, pointerId: 1, clientX: 1162, clientY: 862, preventDefault() {},
+  });
+  bead.dispatch('pointermove', { clientX: 1010, clientY: 760 });
+  bead.dispatch('pointerup', { clientX: 910, clientY: 660 });
+
+  assert.equal(bead.style.left, '900px');
+  assert.equal(bead.style.top, '650px');
+  assert.deepEqual({ ...patches.at(-1).display.float.bead }, { right: 260, bottom: 210 });
+});
+
 test('dragging a bead persists a canonical anchor that survives viewport changes', () => {
   const patches = [];
   const { reader, setViewport } = createReaderHarness({
@@ -296,7 +399,7 @@ test('dragging a bead persists a canonical anchor that survives viewport changes
     button: 0, pointerId: 1, clientX: 1162, clientY: 862, preventDefault() {},
   });
   bead.dispatch('pointermove', { clientX: 910, clientY: 660 });
-  bead.dispatch('pointerup');
+  bead.dispatch('pointerup', { clientX: 910, clientY: 660 });
 
   assert.deepEqual({ ...patches.at(-1).display.float.bead }, { right: 260, bottom: 210 });
   setViewport(1000, 700);

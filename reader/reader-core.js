@@ -542,6 +542,17 @@
     };
   }
 
+  function beadSettingKey(bead) {
+    if (bead == null) return 'none';
+    if (Number.isFinite(bead.right) && Number.isFinite(bead.bottom)) {
+      return `anchor:${bead.right}:${bead.bottom}`;
+    }
+    if (Number.isFinite(bead.x) && Number.isFinite(bead.y)) {
+      return `point:${bead.x}:${bead.y}`;
+    }
+    return 'invalid';
+  }
+
   globalThis.VeilRead.readerUtils = {
     snapFloatGeometry, shouldFloatAutoHide, isFloatGeometryPatch, styleHintForMode, stepReaderSetting,
     shouldDeferAppearanceSync, didPointerMove, getCollapseBeadPosition, resolveReaderAppearance,
@@ -619,7 +630,7 @@
       emptyShown: false,
       webCatalog: null,        // 在线书目录 [{t,url}]
       beadAnchor: null,        // 用户拖动后的恢复圆点右/下间距；null 时自动跟随悬浮窗
-      beadFollowsPanel: false, // 本次会话已移动/缩放窗口时，忽略尚未落盘的旧圆点坐标
+      beadSettingKey: undefined, // 最近一次接收的外部圆点设置，用于忽略异步旧值重放
     };
     let saveTimer = null;
     let toastTimer = null;
@@ -632,7 +643,9 @@
       st.settings = s;
       const d = s.display;
       const storedBead = d.float && d.float.bead;
-      if (!st.beadFollowsPanel) {
+      const storedBeadKey = beadSettingKey(storedBead);
+      if (storedBeadKey !== st.beadSettingKey) {
+        st.beadSettingKey = storedBeadKey;
         st.beadAnchor = storedBead == null ? null : normalizeBeadAnchor(storedBead, {
           width: window.innerWidth, height: window.innerHeight,
         });
@@ -812,7 +825,8 @@
       const anchor = pointToBeadAnchor(position, {
         width: window.innerWidth, height: window.innerHeight,
       });
-      return showBead(st.beadAnchor || anchor, { reason: 'collapse' });
+      if (!st.beadAnchor) st.beadAnchor = anchor;
+      return showBead(st.beadAnchor, { reason: 'collapse' });
     }
     function toggle(opts2) { return st.presentation === 'panel' ? hide() : show(opts2); }
 
@@ -1213,7 +1227,6 @@
             x: null, y: null, w: 480, h: 600, bead: null,
           };
           st.beadAnchor = null;
-          st.beadFollowsPanel = true;
           host.patchSettings({ display: { float: st.settings.display.float } });
           applySettings(st.settings);
           closeOverlays();
@@ -1247,9 +1260,9 @@
         e.preventDefault();
         const ctx = onStart(e);
         const move = (ev) => onMove(ev, ctx);
-        const up = () => {
+        const up = (ev) => {
           detach();
-          onEnd && onEnd(ctx);
+          onEnd && onEnd(ctx, ev);
           if (!options || options.emitGeometry !== false) emitGeometry();
         };
         const detach = () => {
@@ -1286,7 +1299,11 @@
         ctx.moved = ctx.moved || didPointerMove(ctx.startX, ctx.startY, ev.clientX, ev.clientY);
         placeBeadPoint({ x: ev.clientX - ctx.ox, y: ev.clientY - ctx.oy });
       },
-      (ctx) => {
+      (ctx, ev) => {
+        if (ev && Number.isFinite(ev.clientX) && Number.isFinite(ev.clientY)) {
+          ctx.moved = ctx.moved || didPointerMove(ctx.startX, ctx.startY, ev.clientX, ev.clientY);
+          if (ctx.moved) placeBeadPoint({ x: ev.clientX - ctx.ox, y: ev.clientY - ctx.oy });
+        }
         if (!ctx.moved) {
           if (host.onBeadRestoreRequested) host.onBeadRestoreRequested();
           else show({});
@@ -1299,7 +1316,6 @@
         st.beadAnchor = pointToBeadAnchor(point, {
           width: window.innerWidth, height: window.innerHeight,
         });
-        st.beadFollowsPanel = false;
         // 一并保存最新窗口几何，取消可能尚未落盘的旧坐标，避免它随后把圆点位置重置。
         const rect = panel.getBoundingClientRect();
         host.patchSettings({ display: { float: {
@@ -1391,7 +1407,6 @@
       const rect = panel.getBoundingClientRect();
       // 悬浮窗重新移动或缩放后，恢复圆点应重新依附它的最新位置。
       st.beadAnchor = null;
-      st.beadFollowsPanel = true;
       host.onGeometry && host.onGeometry({
         x: Math.round(rect.left), y: Math.round(rect.top),
         w: Math.round(rect.width), h: Math.round(rect.height),
