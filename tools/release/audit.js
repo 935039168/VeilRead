@@ -62,49 +62,119 @@ function hasHiddenAttribute(attributes) {
     || /(?:^|;)\s*visibility\s*:\s*(?:hidden|collapse)(?:\s*!important)?\s*(?:;|$)/i.test(style);
 }
 
-function visibleStatusTexts(html) {
-  const source = String(html)
-    .replace(/<!--[\s\S]*?-->/g, '')
-    .replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, '');
+function readHtmlTag(source, start) {
+  if (source.startsWith('<!--', start)) {
+    const commentEnd = source.indexOf('-->', start + 4);
+    return { comment: true, end: commentEnd < 0 ? source.length : commentEnd + 3 };
+  }
+  let quote = '';
+  for (let index = start + 1; index < source.length; index++) {
+    const character = source[index];
+    if (quote) {
+      if (character === quote) quote = '';
+    } else if (character === '"' || character === "'") {
+      quote = character;
+    } else if (character === '>') {
+      return { comment: false, raw: source.slice(start, index + 1), end: index + 1 };
+    }
+  }
+  return null;
+}
+
+function rawTextClosingTag(source, start, name) {
+  const normalized = source.toLowerCase();
+  const marker = `</${name}`;
+  let index = normalized.indexOf(marker, start);
+  while (index >= 0) {
+    if (/[\s>]/.test(normalized[index + marker.length] || '')) return index;
+    index = normalized.indexOf(marker, index + marker.length);
+  }
+  return -1;
+}
+
+function normalizeVisibleText(text) {
+  const named = { amp: '&', apos: "'", gt: '>', lt: '<', middot: '·', nbsp: ' ', quot: '"' };
+  return text
+    .replace(/&([A-Za-z]+);/g, (entity, name) => named[name.toLowerCase()] ?? entity)
+    .replace(/&#(?:x([0-9A-Fa-f]+)|(\d+));/g, (entity, hex, decimal) => {
+      const value = Number.parseInt(hex || decimal, hex ? 16 : 10);
+      return Number.isInteger(value) && value <= 0x10ffff ? String.fromCodePoint(value) : entity;
+    })
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function visibleStatusElements(html) {
+  const source = String(html);
   const voidElements = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr']);
+  const hiddenElements = new Set(['script', 'style', 'template']);
   const stack = [];
   const activeStatuses = [];
-  const texts = [];
+  const statuses = [];
+  let index = 0;
 
-  for (const match of source.matchAll(/<[^>]*>|[^<]+/g)) {
-    const token = match[0];
-    if (!token.startsWith('<')) {
-      if (!stack.some((frame) => frame.hidden)) {
-        for (const status of activeStatuses) status.text += ` ${token}`;
+  while (index < source.length) {
+    const rawTextElement = stack.at(-1)?.rawTextElement;
+    if (rawTextElement) {
+      const closingIndex = rawTextClosingTag(source, index, rawTextElement);
+      if (closingIndex < 0) break;
+      index = closingIndex;
+    }
+
+    if (source[index] !== '<') {
+      const nextTag = source.indexOf('<', index);
+      const end = nextTag < 0 ? source.length : nextTag;
+      if (!stack.at(-1)?.hidden) {
+        const text = source.slice(index, end);
+        for (const status of activeStatuses) status.text += ` ${text}`;
       }
+      index = end;
       continue;
     }
 
-    const closing = /^<\s*\/\s*([A-Za-z][\w:-]*)[^>]*>$/.exec(token);
+    const tag = readHtmlTag(source, index);
+    if (!tag) {
+      if (!stack.at(-1)?.hidden) {
+        for (const status of activeStatuses) status.text += ' <';
+      }
+      index++;
+      continue;
+    }
+    index = tag.end;
+    if (tag.comment) continue;
+
+    const closing = /^<\s*\/\s*([A-Za-z][\w:-]*)[^>]*>$/.exec(tag.raw);
     if (closing) {
       const name = closing[1].toLowerCase();
       while (stack.length) {
         const frame = stack.pop();
         if (frame.status) {
-          texts.push(frame.status.text.replace(/(?:&nbsp;|&#160;|&#x0*a0;)/gi, ' ').replace(/\s+/g, ' ').trim());
-          activeStatuses.splice(activeStatuses.indexOf(frame.status), 1);
+          frame.status.text = normalizeVisibleText(frame.status.text);
+          statuses.push(frame.status);
+          activeStatuses.splice(activeStatuses.lastIndexOf(frame.status), 1);
         }
         if (frame.name === name) break;
       }
       continue;
     }
 
-    const opening = /^<\s*([A-Za-z][\w:-]*)\b([^>]*)>$/.exec(token);
+    const opening = /^<\s*([A-Za-z][\w:-]*)\b([\s\S]*?)>$/.exec(tag.raw);
     if (!opening) continue;
     const name = opening[1].toLowerCase();
     const attributes = opening[2].replace(/\/\s*$/, '');
-    const hidden = Boolean(stack.at(-1)?.hidden) || hasHiddenAttribute(attributes);
+    const hidden = Boolean(stack.at(-1)?.hidden) || hiddenElements.has(name) || hasHiddenAttribute(attributes);
     const classes = (htmlAttribute(attributes, 'class') || '').split(/\s+/).filter(Boolean);
-    const status = !hidden && classes.includes('status') ? { text: '' } : null;
+    const status = !hidden && classes.includes('status') ? {
+      browser: (htmlAttribute(attributes, 'data-browser') || '').trim(),
+      state: (htmlAttribute(attributes, 'data-state') || '').trim(),
+      text: '',
+    } : null;
     if (status) activeStatuses.push(status);
-    if (!token.endsWith('/>') && !voidElements.has(name)) stack.push({ name, hidden, status });
+    if (!/\/\s*>$/.test(tag.raw) && !voidElements.has(name)) {
+      stack.push({ name, hidden, status, rawTextElement: name === 'script' || name === 'style' ? name : '' });
+    }
   }
-  return texts;
+  return statuses;
 }
 
 function auditPublicSite(root) {
@@ -151,16 +221,29 @@ function auditPublicSite(root) {
   }
 
   const storeStatuses = [
-    ['site/zh-CN/index.html', '即将上线'],
-    ['site/en/index.html', 'Coming soon'],
+    ['site/zh-CN/index.html', { chrome: 'Chrome 即将上线', edge: 'Edge 即将上线' }],
+    ['site/en/index.html', { chrome: 'Chrome · Coming soon', edge: 'Edge · Coming soon' }],
   ];
-  for (const [relative, status] of storeStatuses) {
+  for (const [relative, expectedTexts] of storeStatuses) {
     const file = path.join(root, relative);
     if (!fs.existsSync(file)) continue;
-    const statusTexts = visibleStatusTexts(fs.readFileSync(file, 'utf8'));
-    for (const browser of ['Chrome', 'Edge']) {
-      const present = statusTexts.some((text) => text.toLowerCase().includes(browser.toLowerCase()) && text.toLowerCase().includes(status.toLowerCase()));
-      if (!present) errors.push(`${relative}: missing ${browser} status ${status}`);
+    const statuses = visibleStatusElements(fs.readFileSync(file, 'utf8'));
+    for (const browser of ['chrome', 'edge']) {
+      const label = browser[0].toUpperCase() + browser.slice(1);
+      const matches = statuses.filter((status) => status.browser === browser);
+      if (matches.length === 0) {
+        errors.push(`${relative}: missing ${label} status ${expectedTexts[browser]}`);
+        continue;
+      }
+      if (matches.length > 1) {
+        errors.push(`${relative}: duplicate ${label} status elements`);
+        continue;
+      }
+      if (matches[0].state !== 'coming-soon') errors.push(`${relative}: ${label} status data-state must be coming-soon`);
+      if (matches[0].text !== expectedTexts[browser]) errors.push(`${relative}: ${label} status text must be ${expectedTexts[browser]}`);
+    }
+    for (const status of statuses.filter((item) => item.browser !== 'chrome' && item.browser !== 'edge')) {
+      errors.push(`${relative}: status element has invalid data-browser ${status.browser || '(missing)'}`);
     }
   }
 

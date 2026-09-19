@@ -6,6 +6,21 @@ const os = require('node:os');
 
 const root = path.resolve(__dirname, '../..');
 
+function copySiteFixture(prefix, t) {
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  t.after(() => fs.rmSync(fixture, { recursive: true, force: true }));
+  fs.cpSync(path.join(root, 'site'), path.join(fixture, 'site'), { recursive: true });
+  return fixture;
+}
+
+function replaceProductStatuses(fixture, locale, markup) {
+  const file = path.join(fixture, 'site', locale, 'index.html');
+  const original = fs.readFileSync(file, 'utf8');
+  const updated = original.replace(/<span class="status"[^>]*>[\s\S]*?<\/span><span class="status"[^>]*>[\s\S]*?<\/span>/, markup);
+  assert.notEqual(updated, original, `${locale} fixture should replace both product statuses`);
+  fs.writeFileSync(file, updated);
+}
+
 test('manifest metadata is localized and versions stay aligned', () => {
   const { auditManifestAndLocales } = require('../../tools/release/audit.js');
   assert.deepEqual(auditManifestAndLocales(root), []);
@@ -48,61 +63,76 @@ test('public site audit requires every public page', (t) => {
     assert.match(output, new RegExp(`${relative.replaceAll('.', '\\.')}: missing public page`));
   }
 });
-test('public site audit ignores localized coming-soon text preserved only in comments', (t) => {
+test('public site audit requires structured localized statuses even when old text remains in comments', (t) => {
   const { auditPublicSite } = require('../../tools/release/audit.js');
-  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'veilread-status-'));
-  t.after(() => fs.rmSync(fixture, { recursive: true, force: true }));
-  fs.cpSync(path.join(root, 'site'), path.join(fixture, 'site'), { recursive: true });
-  const zhProduct = path.join(fixture, 'site/zh-CN/index.html');
-  const enProduct = path.join(fixture, 'site/en/index.html');
-  fs.writeFileSync(zhProduct, fs.readFileSync(zhProduct, 'utf8')
-    .replace('Chrome 即将上线', 'Chrome 现已上线<!-- Chrome 即将上线 -->')
-    .replace('Edge 即将上线', 'Edge 现已上线<!-- Edge 即将上线 -->'));
-  fs.writeFileSync(enProduct, fs.readFileSync(enProduct, 'utf8')
-    .replace('Chrome · Coming soon', 'Chrome · Available now<!-- Chrome · Coming soon -->')
-    .replace('Edge · Coming soon', 'Edge · Available now<!-- Edge · Coming soon -->'));
+  const fixture = copySiteFixture('veilread-status-', t);
+  replaceProductStatuses(fixture, 'zh-CN', '<span class="status" data-browser="chrome" data-state="available">Chrome 现已上线</span><span class="status" data-browser="edge" data-state="available">Edge 现已上线</span><!-- <span class="status" data-browser="chrome" data-state="coming-soon">Chrome 即将上线</span><span class="status" data-browser="edge" data-state="coming-soon">Edge 即将上线</span> -->');
+  replaceProductStatuses(fixture, 'en', '<span class="status" data-browser="chrome" data-state="available">Chrome · Available</span><span class="status" data-browser="edge" data-state="available">Edge · Available</span><!-- <span class="status" data-browser="chrome" data-state="coming-soon">Chrome · Coming soon</span><span class="status" data-browser="edge" data-state="coming-soon">Edge · Coming soon</span> -->');
 
   const output = auditPublicSite(fixture).join('\n');
-  assert.match(output, /site\/zh-CN\/index\.html: missing Chrome status 即将上线/);
-  assert.match(output, /site\/zh-CN\/index\.html: missing Edge status 即将上线/);
-  assert.match(output, /site\/en\/index\.html: missing Chrome status Coming soon/);
-  assert.match(output, /site\/en\/index\.html: missing Edge status Coming soon/);
+  for (const [locale, browser] of [['zh-CN', 'Chrome'], ['zh-CN', 'Edge'], ['en', 'Chrome'], ['en', 'Edge']]) {
+    assert.match(output, new RegExp(`site/${locale}/index\\.html: .*${browser}`));
+  }
 });
 test('public site audit accepts localized coming-soon statuses with nested markup', (t) => {
   const { auditPublicSite } = require('../../tools/release/audit.js');
-  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'veilread-nested-status-'));
-  t.after(() => fs.rmSync(fixture, { recursive: true, force: true }));
-  fs.cpSync(path.join(root, 'site'), path.join(fixture, 'site'), { recursive: true });
-  const zhProduct = path.join(fixture, 'site/zh-CN/index.html');
-  const enProduct = path.join(fixture, 'site/en/index.html');
-  fs.writeFileSync(zhProduct, fs.readFileSync(zhProduct, 'utf8')
-    .replace('<span class="status">Chrome 即将上线</span>', '<span class="badge status featured"><strong>Chrome</strong> <em>即将上线</em></span>')
-    .replace('<span class="status">Edge 即将上线</span>', '<span class="badge status featured"><strong>Edge</strong> <em>即将上线</em></span>'));
-  fs.writeFileSync(enProduct, fs.readFileSync(enProduct, 'utf8')
-    .replace('<span class="status">Chrome · Coming soon</span>', '<span class="badge status featured"><strong>Chrome</strong> · <em>Coming soon</em></span>')
-    .replace('<span class="status">Edge · Coming soon</span>', '<span class="badge status featured"><strong>Edge</strong> · <em>Coming soon</em></span>'));
+  const fixture = copySiteFixture('veilread-nested-status-', t);
+  replaceProductStatuses(fixture, 'zh-CN', '<span class="badge status featured" data-browser="chrome" data-state="coming-soon"><strong>Chrome</strong> <em>即将上线</em></span><span class="badge status featured" data-browser="edge" data-state="coming-soon"><strong>Edge</strong> <em>即将上线</em></span>');
+  replaceProductStatuses(fixture, 'en', '<span class="badge status featured" data-browser="chrome" data-state="coming-soon"><strong>Chrome</strong> · <em>Coming soon</em></span><span class="badge status featured" data-browser="edge" data-state="coming-soon"><strong>Edge</strong> · <em>Coming soon</em></span>');
 
   assert.deepEqual(auditPublicSite(fixture), []);
 });
-test('public site audit ignores statuses in scripts, styles, and hidden elements', (t) => {
+test('public site audit ignores structured statuses in comments, scripts, styles, hidden, and aria-hidden subtrees', (t) => {
   const { auditPublicSite } = require('../../tools/release/audit.js');
-  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'veilread-hidden-status-'));
-  t.after(() => fs.rmSync(fixture, { recursive: true, force: true }));
-  fs.cpSync(path.join(root, 'site'), path.join(fixture, 'site'), { recursive: true });
-  const zhProduct = path.join(fixture, 'site/zh-CN/index.html');
-  const enProduct = path.join(fixture, 'site/en/index.html');
-  fs.writeFileSync(zhProduct, fs.readFileSync(zhProduct, 'utf8')
-    .replaceAll('即将上线', '现已上线')
-    .replace('</body>', '<script type="text/plain"><span class="status">Chrome 即将上线</span></script><style><span class="status">Edge 即将上线</span></style></body>'));
-  fs.writeFileSync(enProduct, fs.readFileSync(enProduct, 'utf8')
-    .replaceAll('Coming soon', 'Available now')
-    .replace('</body>', '<span class="status" hidden>Chrome Coming soon</span><span class="status" aria-hidden="true">Edge Coming soon</span><span class="status" style="display: none">Chrome Coming soon</span><span class="status" style="visibility: hidden">Edge Coming soon</span></body>'));
+  const fixture = copySiteFixture('veilread-hidden-status-', t);
+  replaceProductStatuses(fixture, 'zh-CN', '<span class="status" data-browser="chrome" data-state="coming-soon">Chrome 即将上线</span><span class="status" data-browser="edge" data-state="coming-soon">Edge 即将上线</span><!-- <span class="status" data-browser="chrome" data-state="coming-soon">Chrome 即将上线</span> --><script><span class="status" data-browser="edge" data-state="coming-soon">Edge 即将上线</span></script><style><span class="status" data-browser="chrome" data-state="coming-soon">Chrome 即将上线</span></style>');
+  replaceProductStatuses(fixture, 'en', '<span class="status" data-browser="chrome" data-state="coming-soon">Chrome · Coming soon</span><span class="status" data-browser="edge" data-state="coming-soon">Edge · Coming soon</span><div hidden><span class="status" data-browser="chrome" data-state="coming-soon">Chrome · Coming soon</span></div><div aria-hidden="true"><span class="status" data-browser="edge" data-state="coming-soon">Edge · Coming soon</span></div><div style="display: none"><span class="status" data-browser="chrome" data-state="coming-soon">Chrome · Coming soon</span></div><div style="visibility: hidden"><span class="status" data-browser="edge" data-state="coming-soon">Edge · Coming soon</span></div>');
+
+  assert.deepEqual(auditPublicSite(fixture), []);
+});
+test('public site audit respects greater-than signs inside quoted hidden attributes', (t) => {
+  const { auditPublicSite } = require('../../tools/release/audit.js');
+  const fixture = copySiteFixture('veilread-quoted-status-', t);
+  for (const [locale, chromeText, edgeText] of [
+    ['zh-CN', 'Chrome 即将上线', 'Edge 即将上线'],
+    ['en', 'Chrome · Coming soon', 'Edge · Coming soon'],
+  ]) {
+    replaceProductStatuses(fixture, locale, `<div title="gate > rollout" hidden="phase > launch"><span class="status" data-browser="chrome" data-state="coming-soon">${chromeText}</span><span class="status" data-browser="edge" data-state="coming-soon">${edgeText}</span></div>`);
+  }
 
   const output = auditPublicSite(fixture).join('\n');
-  assert.match(output, /site\/zh-CN\/index\.html: missing Chrome status 即将上线/);
-  assert.match(output, /site\/zh-CN\/index\.html: missing Edge status 即将上线/);
-  assert.match(output, /site\/en\/index\.html: missing Chrome status Coming soon/);
-  assert.match(output, /site\/en\/index\.html: missing Edge status Coming soon/);
+  for (const [locale, browser] of [['zh-CN', 'Chrome'], ['zh-CN', 'Edge'], ['en', 'Chrome'], ['en', 'Edge']]) {
+    assert.match(output, new RegExp(`site/${locale}/index\\.html: .*${browser}`));
+  }
+});
+test('public site audit ignores statuses that exist only in templates', (t) => {
+  const { auditPublicSite } = require('../../tools/release/audit.js');
+  const fixture = copySiteFixture('veilread-template-status-', t);
+  replaceProductStatuses(fixture, 'zh-CN', '<template><span class="status" data-browser="chrome" data-state="coming-soon">Chrome 即将上线</span><span class="status" data-browser="edge" data-state="coming-soon">Edge 即将上线</span></template>');
+  replaceProductStatuses(fixture, 'en', '<template><span class="status" data-browser="chrome" data-state="coming-soon">Chrome · Coming soon</span><span class="status" data-browser="edge" data-state="coming-soon">Edge · Coming soon</span></template>');
+
+  const output = auditPublicSite(fixture).join('\n');
+  for (const [locale, browser] of [['zh-CN', 'Chrome'], ['zh-CN', 'Edge'], ['en', 'Chrome'], ['en', 'Edge']]) {
+    assert.match(output, new RegExp(`site/${locale}/index\\.html: .*${browser}`));
+  }
+});
+test('public site audit does not let one mixed status satisfy both browsers', (t) => {
+  const { auditPublicSite } = require('../../tools/release/audit.js');
+  const fixture = copySiteFixture('veilread-mixed-status-', t);
+  replaceProductStatuses(fixture, 'zh-CN', '<span class="status" data-browser="chrome" data-state="available">Chrome 现已上线；Edge 即将上线</span>');
+  replaceProductStatuses(fixture, 'en', '<span class="status" data-browser="chrome" data-state="available">Chrome Available; Edge Coming soon</span>');
+
+  const output = auditPublicSite(fixture).join('\n');
+  for (const [locale, browser] of [['zh-CN', 'Chrome'], ['zh-CN', 'Edge'], ['en', 'Chrome'], ['en', 'Edge']]) {
+    assert.match(output, new RegExp(`site/${locale}/index\\.html: .*${browser}`));
+  }
+});
+test('public site audit rejects duplicate browser statuses with mixed states', (t) => {
+  const { auditPublicSite } = require('../../tools/release/audit.js');
+  const fixture = copySiteFixture('veilread-duplicate-status-', t);
+  replaceProductStatuses(fixture, 'en', '<span class="status" data-browser="chrome" data-state="coming-soon">Chrome · Coming soon</span><span class="status" data-browser="chrome" data-state="available">Chrome · Available</span><span class="status" data-browser="edge" data-state="coming-soon">Edge · Coming soon</span>');
+
+  assert.match(auditPublicSite(fixture).join('\n'), /site\/en\/index\.html: .*duplicate Chrome/i);
 });
 test('store documents cover listings, permissions, privacy, and reviewer guidance', () => {
   const { auditStoreDocuments } = require('../../tools/release/audit.js');
@@ -205,4 +235,12 @@ test('product home selects a localized entry and both languages remain switchabl
   assert.match(en, /href="\/VeilRead\/zh-CN\/"/);
   assert.match(gateway, /href="\.\/zh-CN\/"/);
   assert.match(gateway, /href="\.\/en\/"/);
+});
+test('localized product homes publish one structured coming-soon status per browser', () => {
+  for (const locale of ['zh-CN', 'en']) {
+    const html = fs.readFileSync(path.join(root, 'site', locale, 'index.html'), 'utf8');
+    for (const browser of ['chrome', 'edge']) {
+      assert.ok(html.includes(`class="status" data-browser="${browser}" data-state="coming-soon"`), `${locale} should publish ${browser} coming-soon data attributes`);
+    }
+  }
 });
