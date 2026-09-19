@@ -48,15 +48,55 @@ test('public site audit requires every public page', (t) => {
     assert.match(output, new RegExp(`${relative.replaceAll('.', '\\.')}: missing public page`));
   }
 });
-test('public site audit requires localized Chrome and Edge coming-soon statuses', (t) => {
+test('public site audit ignores localized coming-soon text preserved only in comments', (t) => {
   const { auditPublicSite } = require('../../tools/release/audit.js');
   const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'veilread-status-'));
   t.after(() => fs.rmSync(fixture, { recursive: true, force: true }));
   fs.cpSync(path.join(root, 'site'), path.join(fixture, 'site'), { recursive: true });
   const zhProduct = path.join(fixture, 'site/zh-CN/index.html');
   const enProduct = path.join(fixture, 'site/en/index.html');
-  fs.writeFileSync(zhProduct, fs.readFileSync(zhProduct, 'utf8').replaceAll('即将上线', '现已上线'));
-  fs.writeFileSync(enProduct, fs.readFileSync(enProduct, 'utf8').replaceAll('Coming soon', 'Available now'));
+  fs.writeFileSync(zhProduct, fs.readFileSync(zhProduct, 'utf8')
+    .replace('Chrome 即将上线', 'Chrome 现已上线<!-- Chrome 即将上线 -->')
+    .replace('Edge 即将上线', 'Edge 现已上线<!-- Edge 即将上线 -->'));
+  fs.writeFileSync(enProduct, fs.readFileSync(enProduct, 'utf8')
+    .replace('Chrome · Coming soon', 'Chrome · Available now<!-- Chrome · Coming soon -->')
+    .replace('Edge · Coming soon', 'Edge · Available now<!-- Edge · Coming soon -->'));
+
+  const output = auditPublicSite(fixture).join('\n');
+  assert.match(output, /site\/zh-CN\/index\.html: missing Chrome status 即将上线/);
+  assert.match(output, /site\/zh-CN\/index\.html: missing Edge status 即将上线/);
+  assert.match(output, /site\/en\/index\.html: missing Chrome status Coming soon/);
+  assert.match(output, /site\/en\/index\.html: missing Edge status Coming soon/);
+});
+test('public site audit accepts localized coming-soon statuses with nested markup', (t) => {
+  const { auditPublicSite } = require('../../tools/release/audit.js');
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'veilread-nested-status-'));
+  t.after(() => fs.rmSync(fixture, { recursive: true, force: true }));
+  fs.cpSync(path.join(root, 'site'), path.join(fixture, 'site'), { recursive: true });
+  const zhProduct = path.join(fixture, 'site/zh-CN/index.html');
+  const enProduct = path.join(fixture, 'site/en/index.html');
+  fs.writeFileSync(zhProduct, fs.readFileSync(zhProduct, 'utf8')
+    .replace('<span class="status">Chrome 即将上线</span>', '<span class="badge status featured"><strong>Chrome</strong> <em>即将上线</em></span>')
+    .replace('<span class="status">Edge 即将上线</span>', '<span class="badge status featured"><strong>Edge</strong> <em>即将上线</em></span>'));
+  fs.writeFileSync(enProduct, fs.readFileSync(enProduct, 'utf8')
+    .replace('<span class="status">Chrome · Coming soon</span>', '<span class="badge status featured"><strong>Chrome</strong> · <em>Coming soon</em></span>')
+    .replace('<span class="status">Edge · Coming soon</span>', '<span class="badge status featured"><strong>Edge</strong> · <em>Coming soon</em></span>'));
+
+  assert.deepEqual(auditPublicSite(fixture), []);
+});
+test('public site audit ignores statuses in scripts, styles, and hidden elements', (t) => {
+  const { auditPublicSite } = require('../../tools/release/audit.js');
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'veilread-hidden-status-'));
+  t.after(() => fs.rmSync(fixture, { recursive: true, force: true }));
+  fs.cpSync(path.join(root, 'site'), path.join(fixture, 'site'), { recursive: true });
+  const zhProduct = path.join(fixture, 'site/zh-CN/index.html');
+  const enProduct = path.join(fixture, 'site/en/index.html');
+  fs.writeFileSync(zhProduct, fs.readFileSync(zhProduct, 'utf8')
+    .replaceAll('即将上线', '现已上线')
+    .replace('</body>', '<script type="text/plain"><span class="status">Chrome 即将上线</span></script><style><span class="status">Edge 即将上线</span></style></body>'));
+  fs.writeFileSync(enProduct, fs.readFileSync(enProduct, 'utf8')
+    .replaceAll('Coming soon', 'Available now')
+    .replace('</body>', '<span class="status" hidden>Chrome Coming soon</span><span class="status" aria-hidden="true">Edge Coming soon</span><span class="status" style="display: none">Chrome Coming soon</span><span class="status" style="visibility: hidden">Edge Coming soon</span></body>'));
 
   const output = auditPublicSite(fixture).join('\n');
   assert.match(output, /site\/zh-CN\/index\.html: missing Chrome status 即将上线/);
@@ -151,7 +191,8 @@ test('workflow configuration verifies releases and deploys only the static site'
   for (const text of ['actions/configure-pages@', 'actions/upload-pages-artifact@', 'actions/deploy-pages@', 'path: site', 'contents: read', 'pages: write', 'id-token: write']) {
     assert.ok(pages.includes(text), `Pages workflow should contain ${text}`);
   }
-  assert.match(pages, /uses:\s*actions\/configure-pages@v5\s*\r?\n\s*with:\s*\r?\n\s*enablement:\s*true/);
+  assert.doesNotMatch(pages, /\benablement:\s*true\b/i);
+  assert.doesNotMatch(pages, /\btoken:\s*\$\{\{\s*secrets\./i);
   assert.doesNotMatch(ci + pages, /CLIENT_SECRET|API_KEY|CHROME_WEB_STORE|EDGE_PRODUCT/i);
 });
 test('product home selects a localized entry and both languages remain switchable', () => {

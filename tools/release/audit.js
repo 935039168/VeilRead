@@ -48,6 +48,65 @@ function auditManifestAndLocales(root) {
   return errors;
 }
 
+function htmlAttribute(attributes, name) {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = new RegExp(`(?:^|\\s)${escaped}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s"'=<>\`]+))`, 'i').exec(attributes);
+  return match ? match[1] ?? match[2] ?? match[3] : null;
+}
+
+function hasHiddenAttribute(attributes) {
+  if (/(?:^|\s)hidden(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?(?=\s|$)/i.test(attributes)) return true;
+  if (/^true$/i.test(htmlAttribute(attributes, 'aria-hidden') || '')) return true;
+  const style = htmlAttribute(attributes, 'style') || '';
+  return /(?:^|;)\s*display\s*:\s*none(?:\s*!important)?\s*(?:;|$)/i.test(style)
+    || /(?:^|;)\s*visibility\s*:\s*(?:hidden|collapse)(?:\s*!important)?\s*(?:;|$)/i.test(style);
+}
+
+function visibleStatusTexts(html) {
+  const source = String(html)
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, '');
+  const voidElements = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr']);
+  const stack = [];
+  const activeStatuses = [];
+  const texts = [];
+
+  for (const match of source.matchAll(/<[^>]*>|[^<]+/g)) {
+    const token = match[0];
+    if (!token.startsWith('<')) {
+      if (!stack.some((frame) => frame.hidden)) {
+        for (const status of activeStatuses) status.text += ` ${token}`;
+      }
+      continue;
+    }
+
+    const closing = /^<\s*\/\s*([A-Za-z][\w:-]*)[^>]*>$/.exec(token);
+    if (closing) {
+      const name = closing[1].toLowerCase();
+      while (stack.length) {
+        const frame = stack.pop();
+        if (frame.status) {
+          texts.push(frame.status.text.replace(/(?:&nbsp;|&#160;|&#x0*a0;)/gi, ' ').replace(/\s+/g, ' ').trim());
+          activeStatuses.splice(activeStatuses.indexOf(frame.status), 1);
+        }
+        if (frame.name === name) break;
+      }
+      continue;
+    }
+
+    const opening = /^<\s*([A-Za-z][\w:-]*)\b([^>]*)>$/.exec(token);
+    if (!opening) continue;
+    const name = opening[1].toLowerCase();
+    const attributes = opening[2].replace(/\/\s*$/, '');
+    const hidden = Boolean(stack.at(-1)?.hidden) || hasHiddenAttribute(attributes);
+    const classes = (htmlAttribute(attributes, 'class') || '').split(/\s+/).filter(Boolean);
+    const status = !hidden && classes.includes('status') ? { text: '' } : null;
+    if (status) activeStatuses.push(status);
+    if (!token.endsWith('/>') && !voidElements.has(name)) stack.push({ name, hidden, status });
+  }
+  return texts;
+}
+
 function auditPublicSite(root) {
   const languageRouter = path.join(root, 'site/language.js');
   const languageError = fs.existsSync(languageRouter) ? [] : ['site/language.js: missing language router'];
@@ -98,10 +157,10 @@ function auditPublicSite(root) {
   for (const [relative, status] of storeStatuses) {
     const file = path.join(root, relative);
     if (!fs.existsSync(file)) continue;
-    const html = fs.readFileSync(file, 'utf8');
+    const statusTexts = visibleStatusTexts(fs.readFileSync(file, 'utf8'));
     for (const browser of ['Chrome', 'Edge']) {
-      const pattern = new RegExp(`${browser}[^<]{0,20}${status}`, 'i');
-      if (!pattern.test(html)) errors.push(`${relative}: missing ${browser} status ${status}`);
+      const present = statusTexts.some((text) => text.toLowerCase().includes(browser.toLowerCase()) && text.toLowerCase().includes(status.toLowerCase()));
+      if (!present) errors.push(`${relative}: missing ${browser} status ${status}`);
     }
   }
 
