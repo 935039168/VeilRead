@@ -393,6 +393,67 @@ test('a delayed local bead reset cannot clear an anchor created by a later colla
   assert.equal(bead.style.top, '852px');
 });
 
+test('concurrent local clear acknowledgements each preserve a newer collapse anchor', () => {
+  const geometryResets = [];
+  const { reader } = createReaderHarness({
+    onGeometry(geometry) { geometryResets.push({ ...geometry }); },
+  });
+  const settings = settingsFor('float');
+  settings.display.float.bead = { right: 260, bottom: 210 };
+  reader.applySettings(settings);
+  reader.show();
+  const grab = reader.panel.children.find((child) => child.classList.contains('vr-grab'));
+
+  for (const clientX of [104, 204]) {
+    const rect = reader.panel.getBoundingClientRect();
+    grab.dispatch('pointerdown', {
+      button: 0, pointerId: 1, clientX: rect.left + 4, clientY: rect.top + 10, preventDefault() {},
+    });
+    grab.dispatch('pointermove', { clientX, clientY: 110 });
+    grab.dispatch('pointerup', { clientX, clientY: 110 });
+  }
+  reader.collapse();
+  const bead = reader.el.children.find((child) => child.classList.contains('vr-bead'));
+  assert.equal(bead.style.left, '632px');
+  assert.equal(bead.style.top, '652px');
+
+  for (const reset of geometryResets) {
+    const acknowledgement = settingsFor('float');
+    Object.assign(acknowledgement.display.float, reset);
+    reader.applySettings(acknowledgement);
+    assert.equal(bead.style.left, '632px');
+    assert.equal(bead.style.top, '652px');
+  }
+});
+
+test('a replayed base anchor does not discard its pending local clear acknowledgement', () => {
+  const geometryResets = [];
+  const { reader } = createReaderHarness({
+    onGeometry(geometry) { geometryResets.push({ ...geometry }); },
+  });
+  const baseSettings = settingsFor('float');
+  baseSettings.display.float.bead = { right: 260, bottom: 210 };
+  reader.applySettings(baseSettings);
+  reader.show();
+  const grab = reader.panel.children.find((child) => child.classList.contains('vr-grab'));
+  grab.dispatch('pointerdown', {
+    button: 0, pointerId: 1, clientX: 700, clientY: 160, preventDefault() {},
+  });
+  grab.dispatch('pointermove', { clientX: 104, clientY: 110 });
+  grab.dispatch('pointerup', { clientX: 104, clientY: 110 });
+  reader.collapse();
+  const bead = reader.el.children.find((child) => child.classList.contains('vr-bead'));
+  assert.equal(bead.style.left, '532px');
+  assert.equal(bead.style.top, '652px');
+
+  reader.applySettings(baseSettings);
+  const acknowledgement = settingsFor('float');
+  Object.assign(acknowledgement.display.float, geometryResets[0]);
+  reader.applySettings(acknowledgement);
+  assert.equal(bead.style.left, '532px');
+  assert.equal(bead.style.top, '652px');
+});
+
 test('an external anchor after a local clear does not make the following null look stale', () => {
   const geometryResets = [];
   const { reader } = createReaderHarness({
@@ -474,6 +535,27 @@ test('consecutive local bead clears use distinct acknowledgement tokens', () => 
   assert.equal(typeof geometryResets[0].beadClearToken, 'string');
   assert.equal(typeof geometryResets[1].beadClearToken, 'string');
   assert.notEqual(geometryResets[0].beadClearToken, geometryResets[1].beadClearToken);
+});
+
+test('evicted local clear tokens are treated as authoritative external clears', () => {
+  const geometryResets = [];
+  const { reader } = createReaderHarness({
+    onGeometry(geometry) { geometryResets.push({ ...geometry }); },
+  });
+  reader.applySettings(settingsFor('float'));
+  reader.show();
+  const grab = reader.panel.children.find((child) => child.classList.contains('vr-grab'));
+  for (let i = 0; i < 33; i += 1) grab.dispatch('dblclick');
+  assert.equal(geometryResets.length, 33);
+  assert.equal(new Set(geometryResets.map((item) => item.beadClearToken)).size, 33);
+
+  reader.collapse();
+  const bead = reader.el.children.find((child) => child.classList.contains('vr-bead'));
+  const evictedClear = settingsFor('float');
+  Object.assign(evictedClear.display.float, geometryResets[0]);
+  reader.applySettings(evictedClear);
+  assert.equal(bead.style.left, '1152px');
+  assert.equal(bead.style.top, '852px');
 });
 
 test('a distant pointerup without pointermove drags the bead instead of restoring', () => {

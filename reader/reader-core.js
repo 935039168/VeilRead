@@ -492,6 +492,7 @@
 
   const BEAD_SIZE = 40;
   const BEAD_SAFE_INSET = 8;
+  const MAX_PENDING_BEAD_CLEARS = 32;
   let readerInstanceSequence = 0;
 
   function clampBeadCoordinate(value, viewportSize) {
@@ -643,8 +644,9 @@
       webCatalog: null,        // 在线书目录 [{t,url}]
       beadAnchor: null,        // 用户拖动后的恢复圆点右/下间距；null 时自动跟随悬浮窗
       beadSettingKey: undefined, // 最近一次接收的外部圆点设置，用于忽略异步旧值重放
+      authoritativeBeadKey: undefined,
       localBeadAnchorGeneration: 0,
-      pendingBeadClear: null,
+      pendingBeadClears: new Map(),
     };
     let saveTimer = null;
     let toastTimer = null;
@@ -659,20 +661,33 @@
       const storedBead = d.float && d.float.bead;
       const storedBeadClearToken = d.float && d.float.beadClearToken;
       const storedBeadKey = beadSettingKey(storedBead, storedBeadClearToken);
+      const storedBeadBaseKey = beadSettingKey(storedBead);
       let supersededLocalClear = false;
       let forceStoredBead = false;
-      if (storedBead == null && st.pendingBeadClear) {
-        const matchingLocalClear = typeof storedBeadClearToken === 'string' &&
-          storedBeadClearToken === st.pendingBeadClear.token;
-        supersededLocalClear = matchingLocalClear &&
-          st.localBeadAnchorGeneration !== st.pendingBeadClear.localAnchorGeneration;
-        forceStoredBead = !matchingLocalClear;
-        st.pendingBeadClear = null;
-      } else if (storedBead != null) {
-        st.pendingBeadClear = null;
+      let replayedBaseAnchor = false;
+      if (storedBead == null) {
+        const pendingClear = typeof storedBeadClearToken === 'string'
+          ? st.pendingBeadClears.get(storedBeadClearToken)
+          : null;
+        if (pendingClear) {
+          st.pendingBeadClears.delete(storedBeadClearToken);
+          supersededLocalClear = st.localBeadAnchorGeneration !==
+            pendingClear.localAnchorGeneration;
+          forceStoredBead = true;
+        } else if (st.pendingBeadClears.size) {
+          st.pendingBeadClears.clear();
+          forceStoredBead = true;
+        }
+      } else if ([...st.pendingBeadClears.values()].some((pendingClear) =>
+        pendingClear.baseBeadKey === storedBeadBaseKey)) {
+        replayedBaseAnchor = true;
+      } else if (st.pendingBeadClears.size) {
+        st.pendingBeadClears.clear();
+        forceStoredBead = true;
       }
-      if (storedBeadKey !== st.beadSettingKey || forceStoredBead) {
+      if (!replayedBaseAnchor && (storedBeadKey !== st.beadSettingKey || forceStoredBead)) {
         st.beadSettingKey = storedBeadKey;
+        st.authoritativeBeadKey = storedBeadBaseKey;
         if (!supersededLocalClear) {
           setBeadAnchor(storedBead == null ? null : normalizeBeadAnchor(storedBead, {
             width: window.innerWidth, height: window.innerHeight,
@@ -1261,7 +1276,7 @@
             x: null, y: null, w: 480, h: 600, bead: null, beadClearToken: null,
           };
           setBeadAnchor(null);
-          st.pendingBeadClear = null;
+          st.pendingBeadClears.clear();
           host.patchSettings({ display: { float: st.settings.display.float } });
           applySettings(st.settings);
           closeOverlays();
@@ -1443,10 +1458,15 @@
       // 悬浮窗重新移动或缩放后，恢复圆点应重新依附它的最新位置。
       setBeadAnchor(null, false);
       const beadClearToken = `${beadClearTokenPrefix}:${++beadClearTokenSequence}`;
-      st.pendingBeadClear = host.onGeometry ? {
-        localAnchorGeneration: st.localBeadAnchorGeneration,
-        token: beadClearToken,
-      } : null;
+      if (host.onGeometry) {
+        st.pendingBeadClears.set(beadClearToken, {
+          localAnchorGeneration: st.localBeadAnchorGeneration,
+          baseBeadKey: st.authoritativeBeadKey || beadSettingKey(null),
+        });
+        if (st.pendingBeadClears.size > MAX_PENDING_BEAD_CLEARS) {
+          st.pendingBeadClears.delete(st.pendingBeadClears.keys().next().value);
+        }
+      }
       host.onGeometry && host.onGeometry({
         x: Math.round(rect.left), y: Math.round(rect.top),
         w: Math.round(rect.width), h: Math.round(rect.height),
