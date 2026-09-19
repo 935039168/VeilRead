@@ -492,7 +492,7 @@
 
   const BEAD_SIZE = 40;
   const BEAD_SAFE_INSET = 8;
-  const BEAD_CLEAR_ACK_TTL_MS = 1000;
+  let readerInstanceSequence = 0;
 
   function clampBeadCoordinate(value, viewportSize) {
     const max = Math.max(BEAD_SAFE_INSET, viewportSize - BEAD_SIZE - BEAD_SAFE_INSET);
@@ -543,8 +543,8 @@
     };
   }
 
-  function beadSettingKey(bead) {
-    if (bead == null) return 'none';
+  function beadSettingKey(bead, clearToken) {
+    if (bead == null) return `none:${typeof clearToken === 'string' ? clearToken : ''}`;
     if (Number.isFinite(bead.right) && Number.isFinite(bead.bottom)) {
       return `anchor:${bead.right}:${bead.bottom}`;
     }
@@ -552,6 +552,15 @@
       return `point:${bead.x}:${bead.y}`;
     }
     return 'invalid';
+  }
+
+  function createBeadClearTokenPrefix() {
+    const cryptoApi = globalThis.crypto;
+    if (cryptoApi && typeof cryptoApi.randomUUID === 'function') {
+      try { return cryptoApi.randomUUID(); } catch (err) { /* fall through */ }
+    }
+    readerInstanceSequence += 1;
+    return `reader-${readerInstanceSequence}-${Math.random().toString(36).slice(2)}`;
   }
 
   globalThis.VeilRead.readerUtils = {
@@ -564,6 +573,8 @@
 
   return function createReader(opts) {
     const { mount, env = 'content', host } = opts;
+    const beadClearTokenPrefix = createBeadClearTokenPrefix();
+    let beadClearTokenSequence = 0;
 
     // mount 可能是 shadow root（有 appendChild）或普通元素
     const root = mount;
@@ -646,20 +657,18 @@
       st.settings = s;
       const d = s.display;
       const storedBead = d.float && d.float.bead;
-      const storedBeadKey = beadSettingKey(storedBead);
+      const storedBeadClearToken = d.float && d.float.beadClearToken;
+      const storedBeadKey = beadSettingKey(storedBead, storedBeadClearToken);
       let supersededLocalClear = false;
       let forceStoredBead = false;
-      if (st.pendingBeadClear) {
-        if (Date.now() > st.pendingBeadClear.expiresAt) {
-          st.pendingBeadClear = null;
-          forceStoredBead = storedBead == null;
-        } else if (storedBead == null) {
-          supersededLocalClear = st.localBeadAnchorGeneration !==
-            st.pendingBeadClear.localAnchorGeneration;
-          st.pendingBeadClear = null;
-        }
-      }
-      if (storedBead != null && storedBeadKey !== st.beadSettingKey) {
+      if (storedBead == null && st.pendingBeadClear) {
+        const matchingLocalClear = typeof storedBeadClearToken === 'string' &&
+          storedBeadClearToken === st.pendingBeadClear.token;
+        supersededLocalClear = matchingLocalClear &&
+          st.localBeadAnchorGeneration !== st.pendingBeadClear.localAnchorGeneration;
+        forceStoredBead = !matchingLocalClear;
+        st.pendingBeadClear = null;
+      } else if (storedBead != null) {
         st.pendingBeadClear = null;
       }
       if (storedBeadKey !== st.beadSettingKey || forceStoredBead) {
@@ -1249,7 +1258,7 @@
           if (!st.settings) return;
           st.settings.display.float = {
             ...st.settings.display.float,
-            x: null, y: null, w: 480, h: 600, bead: null,
+            x: null, y: null, w: 480, h: 600, bead: null, beadClearToken: null,
           };
           setBeadAnchor(null);
           st.pendingBeadClear = null;
@@ -1347,7 +1356,7 @@
         host.patchSettings({ display: { float: {
           x: Math.round(rect.left), y: Math.round(rect.top),
           w: Math.round(rect.width), h: Math.round(rect.height),
-          bead: st.beadAnchor,
+          bead: st.beadAnchor, beadClearToken: null,
         } } });
       },
       { emitGeometry: false }
@@ -1433,14 +1442,15 @@
       const rect = panel.getBoundingClientRect();
       // 悬浮窗重新移动或缩放后，恢复圆点应重新依附它的最新位置。
       setBeadAnchor(null, false);
+      const beadClearToken = `${beadClearTokenPrefix}:${++beadClearTokenSequence}`;
       st.pendingBeadClear = host.onGeometry ? {
         localAnchorGeneration: st.localBeadAnchorGeneration,
-        expiresAt: Date.now() + BEAD_CLEAR_ACK_TTL_MS,
+        token: beadClearToken,
       } : null;
       host.onGeometry && host.onGeometry({
         x: Math.round(rect.left), y: Math.round(rect.top),
         w: Math.round(rect.width), h: Math.round(rect.height),
-        bead: null,
+        bead: null, beadClearToken,
       });
     }
 
