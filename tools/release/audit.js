@@ -2,6 +2,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { parse } = require('parse5');
 const { locales, runtimeRoots, assetSpecs } = require('./config.js');
 
 function readJson(file, errors) {
@@ -48,132 +49,44 @@ function auditManifestAndLocales(root) {
   return errors;
 }
 
-function htmlAttribute(attributes, name) {
-  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const match = new RegExp(`(?:^|\\s)${escaped}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s"'=<>\`]+))`, 'i').exec(attributes);
-  return match ? match[1] ?? match[2] ?? match[3] : null;
+function elementAttribute(element, name) {
+  const attribute = (element.attrs || []).find((item) => item.name === name);
+  return attribute ? attribute.value : null;
 }
 
-function hasHiddenAttribute(attributes) {
-  if (/(?:^|\s)hidden(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?(?=\s|$)/i.test(attributes)) return true;
-  if (/^true$/i.test(htmlAttribute(attributes, 'aria-hidden') || '')) return true;
-  const style = htmlAttribute(attributes, 'style') || '';
+function isHiddenElement(element) {
+  if ((element.attrs || []).some((attribute) => attribute.name === 'hidden')) return true;
+  if (/^true$/i.test(elementAttribute(element, 'aria-hidden') || '')) return true;
+  const style = elementAttribute(element, 'style') || '';
   return /(?:^|;)\s*display\s*:\s*none(?:\s*!important)?\s*(?:;|$)/i.test(style)
     || /(?:^|;)\s*visibility\s*:\s*(?:hidden|collapse)(?:\s*!important)?\s*(?:;|$)/i.test(style);
 }
 
-function readHtmlTag(source, start) {
-  if (source.startsWith('<!--', start)) {
-    const commentEnd = source.indexOf('-->', start + 4);
-    return { comment: true, end: commentEnd < 0 ? source.length : commentEnd + 3 };
-  }
-  let quote = '';
-  for (let index = start + 1; index < source.length; index++) {
-    const character = source[index];
-    if (quote) {
-      if (character === quote) quote = '';
-    } else if (character === '"' || character === "'") {
-      quote = character;
-    } else if (character === '>') {
-      return { comment: false, raw: source.slice(start, index + 1), end: index + 1 };
-    }
-  }
-  return null;
-}
-
-function rawTextClosingTag(source, start, name) {
-  const normalized = source.toLowerCase();
-  const marker = `</${name}`;
-  let index = normalized.indexOf(marker, start);
-  while (index >= 0) {
-    if (/[\s>]/.test(normalized[index + marker.length] || '')) return index;
-    index = normalized.indexOf(marker, index + marker.length);
-  }
-  return -1;
-}
-
-function normalizeVisibleText(text) {
-  const named = { amp: '&', apos: "'", gt: '>', lt: '<', middot: '·', nbsp: ' ', quot: '"' };
-  return text
-    .replace(/&([A-Za-z]+);/g, (entity, name) => named[name.toLowerCase()] ?? entity)
-    .replace(/&#(?:x([0-9A-Fa-f]+)|(\d+));/g, (entity, hex, decimal) => {
-      const value = Number.parseInt(hex || decimal, hex ? 16 : 10);
-      return Number.isInteger(value) && value <= 0x10ffff ? String.fromCodePoint(value) : entity;
-    })
-    .replace(/\s+/g, ' ')
-    .trim();
+function visibleNodeText(node) {
+  if (node.nodeName === '#text') return node.value;
+  if (node.nodeName === '#comment') return '';
+  if (node.tagName && (['script', 'style', 'template'].includes(node.tagName) || isHiddenElement(node))) return '';
+  return (node.childNodes || []).map(visibleNodeText).join(' ');
 }
 
 function visibleStatusElements(html) {
-  const source = String(html);
-  const voidElements = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr']);
-  const hiddenElements = new Set(['script', 'style', 'template']);
-  const stack = [];
-  const activeStatuses = [];
   const statuses = [];
-  let index = 0;
-
-  while (index < source.length) {
-    const rawTextElement = stack.at(-1)?.rawTextElement;
-    if (rawTextElement) {
-      const closingIndex = rawTextClosingTag(source, index, rawTextElement);
-      if (closingIndex < 0) break;
-      index = closingIndex;
-    }
-
-    if (source[index] !== '<') {
-      const nextTag = source.indexOf('<', index);
-      const end = nextTag < 0 ? source.length : nextTag;
-      if (!stack.at(-1)?.hidden) {
-        const text = source.slice(index, end);
-        for (const status of activeStatuses) status.text += ` ${text}`;
+  function visit(node, hidden) {
+    const elementHidden = hidden || Boolean(node.tagName && (['script', 'style', 'template'].includes(node.tagName) || isHiddenElement(node)));
+    if (elementHidden) return;
+    if (node.tagName) {
+      const classes = (elementAttribute(node, 'class') || '').split(/\s+/).filter(Boolean);
+      if (classes.includes('status')) {
+        statuses.push({
+          browser: (elementAttribute(node, 'data-browser') || '').trim(),
+          state: (elementAttribute(node, 'data-state') || '').trim(),
+          text: visibleNodeText(node).replace(/\s+/g, ' ').trim(),
+        });
       }
-      index = end;
-      continue;
     }
-
-    const tag = readHtmlTag(source, index);
-    if (!tag) {
-      if (!stack.at(-1)?.hidden) {
-        for (const status of activeStatuses) status.text += ' <';
-      }
-      index++;
-      continue;
-    }
-    index = tag.end;
-    if (tag.comment) continue;
-
-    const closing = /^<\s*\/\s*([A-Za-z][\w:-]*)[^>]*>$/.exec(tag.raw);
-    if (closing) {
-      const name = closing[1].toLowerCase();
-      while (stack.length) {
-        const frame = stack.pop();
-        if (frame.status) {
-          frame.status.text = normalizeVisibleText(frame.status.text);
-          statuses.push(frame.status);
-          activeStatuses.splice(activeStatuses.lastIndexOf(frame.status), 1);
-        }
-        if (frame.name === name) break;
-      }
-      continue;
-    }
-
-    const opening = /^<\s*([A-Za-z][\w:-]*)\b([\s\S]*?)>$/.exec(tag.raw);
-    if (!opening) continue;
-    const name = opening[1].toLowerCase();
-    const attributes = opening[2].replace(/\/\s*$/, '');
-    const hidden = Boolean(stack.at(-1)?.hidden) || hiddenElements.has(name) || hasHiddenAttribute(attributes);
-    const classes = (htmlAttribute(attributes, 'class') || '').split(/\s+/).filter(Boolean);
-    const status = !hidden && classes.includes('status') ? {
-      browser: (htmlAttribute(attributes, 'data-browser') || '').trim(),
-      state: (htmlAttribute(attributes, 'data-state') || '').trim(),
-      text: '',
-    } : null;
-    if (status) activeStatuses.push(status);
-    if (!/\/\s*>$/.test(tag.raw) && !voidElements.has(name)) {
-      stack.push({ name, hidden, status, rawTextElement: name === 'script' || name === 'style' ? name : '' });
-    }
+    for (const child of node.childNodes || []) visit(child, elementHidden);
   }
+  visit(parse(String(html)), false);
   return statuses;
 }
 

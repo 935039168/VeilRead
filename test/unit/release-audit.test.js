@@ -134,6 +134,30 @@ test('public site audit rejects duplicate browser statuses with mixed states', (
 
   assert.match(auditPublicSite(fixture).join('\n'), /site\/en\/index\.html: .*duplicate Chrome/i);
 });
+test('public site audit follows HTML5 semantics for trailing solidus on ordinary spans', (t) => {
+  const { auditPublicSite } = require('../../tools/release/audit.js');
+  const fixture = copySiteFixture('veilread-solidus-status-', t);
+  replaceProductStatuses(fixture, 'zh-CN', '<span class="status" data-browser="chrome" data-state="coming-soon"/><strong>Chrome</strong> <em>即将上线</em></span><span class="status" data-browser="edge" data-state="coming-soon"/><strong>Edge</strong> <em>即将上线</em></span>');
+  replaceProductStatuses(fixture, 'en', '<span class="status" data-browser="chrome" data-state="coming-soon"/><strong>Chrome</strong> · <em>Coming soon</em></span><span class="status" data-browser="edge" data-state="coming-soon"/><strong>Edge</strong> · <em>Coming soon</em></span>');
+
+  assert.deepEqual(auditPublicSite(fixture), []);
+});
+test('public site audit follows HTML5 recovery semantics for closing br tags', (t) => {
+  const { auditPublicSite } = require('../../tools/release/audit.js');
+  const fixture = copySiteFixture('veilread-closing-br-status-', t);
+  replaceProductStatuses(fixture, 'zh-CN', '<span class="status" data-browser="chrome" data-state="coming-soon"><strong>Chrome</strong></br><em>即将上线</em></span><span class="status" data-browser="edge" data-state="coming-soon"><strong>Edge</strong></br><em>即将上线</em></span>');
+  replaceProductStatuses(fixture, 'en', '<span class="status" data-browser="chrome" data-state="coming-soon"><strong>Chrome</strong> · </br><em>Coming soon</em></span><span class="status" data-browser="edge" data-state="coming-soon"><strong>Edge</strong> · </br><em>Coming soon</em></span>');
+
+  assert.deepEqual(auditPublicSite(fixture), []);
+});
+test('public site audit follows HTML5 comment recovery for abrupt and incorrectly closed comments', (t) => {
+  const { auditPublicSite } = require('../../tools/release/audit.js');
+  const fixture = copySiteFixture('veilread-comment-recovery-', t);
+  replaceProductStatuses(fixture, 'zh-CN', '<!--><span class="status" data-browser="chrome" data-state="coming-soon">Chrome 即将上线</span><span class="status" data-browser="edge" data-state="coming-soon">Edge 即将上线</span>');
+  replaceProductStatuses(fixture, 'en', '<!-- recovery --!><span class="status" data-browser="chrome" data-state="coming-soon">Chrome · Coming soon</span><span class="status" data-browser="edge" data-state="coming-soon">Edge · Coming soon</span>');
+
+  assert.deepEqual(auditPublicSite(fixture), []);
+});
 test('store documents cover listings, permissions, privacy, and reviewer guidance', () => {
   const { auditStoreDocuments } = require('../../tools/release/audit.js');
   assert.deepEqual(auditStoreDocuments(root), []);
@@ -202,6 +226,13 @@ test('release audit passes for the repository', () => {
   const { auditRepository } = require('../../tools/release/audit.js');
   assert.deepEqual(auditRepository(root), []);
 });
+test('release package roots exclude dependency manifests and installed modules', () => {
+  const { collectRuntimeEntries } = require('../../tools/release/package.js');
+  const names = collectRuntimeEntries(root).map((entry) => entry.name);
+  for (const forbidden of ['package.json', 'package-lock.json', 'node_modules/']) {
+    assert.equal(names.some((name) => name === forbidden || name.startsWith(forbidden)), false, `runtime package should exclude ${forbidden}`);
+  }
+});
 test('release documentation links every compliance resource and command', () => {
   const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
   for (const link of ['RIGHTS.md', 'store/README.md', 'docs/releasing.md', 'site/privacy/zh-CN/', 'site/privacy/en/', 'site/support/zh-CN/', 'site/support/en/']) {
@@ -214,7 +245,7 @@ test('release documentation links every compliance resource and command', () => 
 });
 test('workflow configuration verifies releases and deploys only the static site', () => {
   const ci = fs.readFileSync(path.join(root, '.github/workflows/ci.yml'), 'utf8');
-  for (const text of ['push:', 'pull_request:', 'actions/checkout@v4', 'actions/setup-node@v4', 'node-version: 20', 'npm run release:check', 'npm run package']) {
+  for (const text of ['push:', 'pull_request:', 'actions/checkout@v4', 'actions/setup-node@v4', 'node-version: 20', 'npm ci', 'npm run release:check', 'npm run package']) {
     assert.ok(ci.includes(text), `CI should contain ${text}`);
   }
   const pages = fs.readFileSync(path.join(root, '.github/workflows/pages.yml'), 'utf8');

@@ -8,5 +8,8 @@
     "release:check": "npm test && npm run check && node tools/release/check.js",
     "assets": "node tools/release/render-assets.js",
     "package": "npm run release:check && node tools/release/package.js"
+  },
+  "devDependencies": {
+    "parse5": "^7.3.0"
   }
 }
