@@ -454,6 +454,64 @@ test('a replayed base anchor does not discard its pending local clear acknowledg
   assert.equal(bead.style.top, '652px');
 });
 
+test('a delayed replay of a locally persisted bead does not override a later collapse', () => {
+  const patches = [];
+  const geometryResets = [];
+  const { reader } = createReaderHarness({
+    patchSettings(patch) { patches.push(patch); },
+    onGeometry(geometry) { geometryResets.push({ ...geometry }); },
+  });
+  const initialSettings = settingsFor('float');
+  initialSettings.display.float.bead = { right: 260, bottom: 210 };
+  reader.applySettings(initialSettings);
+  reader.showBead(null, { notify: false, reason: 'sync' });
+  const bead = reader.el.children.find((child) => child.classList.contains('vr-bead'));
+
+  bead.dispatch('pointerdown', {
+    button: 0, pointerId: 1, clientX: 910, clientY: 660, preventDefault() {},
+  });
+  bead.dispatch('pointerup', { clientX: 1010, clientY: 710 });
+  const persistedBead = { ...patches.at(-1).display.float.bead };
+  assert.deepEqual(persistedBead, { right: 160, bottom: 160 });
+
+  reader.show();
+  const grab = reader.panel.children.find((child) => child.classList.contains('vr-grab'));
+  const panelRect = reader.panel.getBoundingClientRect();
+  grab.dispatch('pointerdown', {
+    button: 0, pointerId: 1,
+    clientX: panelRect.left + 4, clientY: panelRect.top + 10,
+    preventDefault() {},
+  });
+  grab.dispatch('pointermove', { clientX: 104, clientY: 110 });
+  grab.dispatch('pointerup', { clientX: 104, clientY: 110 });
+  assert.equal(geometryResets.length, 1);
+
+  reader.collapse();
+  assert.equal(bead.style.left, '532px');
+  assert.equal(bead.style.top, '652px');
+
+  const delayedLocalPersistence = settingsFor('float');
+  Object.assign(delayedLocalPersistence.display.float, geometryResets[0], {
+    bead: persistedBead,
+    beadClearToken: null,
+  });
+  reader.applySettings(delayedLocalPersistence);
+  assert.equal(bead.style.left, '532px');
+  assert.equal(bead.style.top, '652px');
+
+  const clearAcknowledgement = settingsFor('float');
+  Object.assign(clearAcknowledgement.display.float, geometryResets[0]);
+  reader.applySettings(clearAcknowledgement);
+  assert.equal(bead.style.left, '532px');
+  assert.equal(bead.style.top, '652px');
+
+  const externalSettings = settingsFor('float');
+  externalSettings.display.float.bead = { right: 100, bottom: 100 };
+  reader.applySettings(externalSettings);
+  assert.equal(bead.style.left, '1060px');
+  assert.equal(bead.style.top, '760px');
+});
+
 test('an external anchor after a local clear does not make the following null look stale', () => {
   const geometryResets = [];
   const { reader } = createReaderHarness({

@@ -759,6 +759,10 @@
       if (local) st.localBeadAnchorGeneration += 1;
     }
 
+    function recordBeadPersistenceIntent(bead) {
+      st.authoritativeBeadKey = beadSettingKey(bead);
+    }
+
     // rAF 在后台标签页不触发，用 setTimeout 保证位置恢复
     function afterLayout(fn) { setTimeout(fn, 16); }
 
@@ -1277,6 +1281,7 @@
           };
           setBeadAnchor(null);
           st.pendingBeadClears.clear();
+          recordBeadPersistenceIntent(null);
           host.patchSettings({ display: { float: st.settings.display.float } });
           applySettings(st.settings);
           closeOverlays();
@@ -1366,6 +1371,7 @@
         setBeadAnchor(pointToBeadAnchor(point, {
           width: window.innerWidth, height: window.innerHeight,
         }));
+        recordBeadPersistenceIntent(st.beadAnchor);
         // 一并保存最新窗口几何，取消可能尚未落盘的旧坐标，避免它随后把圆点位置重置。
         const rect = panel.getBoundingClientRect();
         host.patchSettings({ display: { float: {
