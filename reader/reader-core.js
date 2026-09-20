@@ -493,7 +493,6 @@
   const BEAD_SIZE = 40;
   const BEAD_SAFE_INSET = 8;
   const MAX_PENDING_BEAD_CLEARS = 32;
-  const MAX_RETIRED_BEAD_CLEARS = 32;
   let readerInstanceSequence = 0;
 
   function clampBeadCoordinate(value, viewportSize) {
@@ -648,7 +647,7 @@
       authoritativeBeadKey: undefined,
       localBeadAnchorGeneration: 0,
       pendingBeadClears: new Map(),
-      retiredBeadClears: new Set(),
+      retiredBeadClearThroughSequence: 0,
     };
     let saveTimer = null;
     let toastTimer = null;
@@ -671,14 +670,13 @@
         const pendingClear = typeof storedBeadClearToken === 'string'
           ? st.pendingBeadClears.get(storedBeadClearToken)
           : null;
-        if (typeof storedBeadClearToken === 'string' &&
-            st.retiredBeadClears.has(storedBeadClearToken)) {
-          ignoredStoredBead = true;
-        } else if (pendingClear) {
+        if (pendingClear) {
           retireBeadClearsThrough(pendingClear);
           supersededLocalClear = st.localBeadAnchorGeneration !==
             pendingClear.localAnchorGeneration;
           forceStoredBead = true;
+        } else if (isRetiredBeadClearToken(storedBeadClearToken)) {
+          ignoredStoredBead = true;
         } else if (st.pendingBeadClears.size) {
           st.pendingBeadClears.clear();
           forceStoredBead = true;
@@ -768,19 +766,30 @@
       st.authoritativeBeadKey = beadSettingKey(bead);
     }
 
-    function retireBeadClearToken(token) {
-      st.retiredBeadClears.add(token);
-      if (st.retiredBeadClears.size > MAX_RETIRED_BEAD_CLEARS) {
-        st.retiredBeadClears.delete(st.retiredBeadClears.values().next().value);
-      }
+    function ownBeadClearTokenSequence(token) {
+      if (typeof token !== 'string') return null;
+      const prefix = `${beadClearTokenPrefix}:`;
+      if (!token.startsWith(prefix)) return null;
+      const value = token.slice(prefix.length);
+      if (!/^[1-9]\d*$/.test(value)) return null;
+      const sequence = Number(value);
+      return Number.isSafeInteger(sequence) ? sequence : null;
+    }
+
+    function isRetiredBeadClearToken(token) {
+      const sequence = ownBeadClearTokenSequence(token);
+      return sequence !== null && sequence <= st.retiredBeadClearThroughSequence;
     }
 
     function retireBeadClearsThrough(acknowledgedClear) {
+      st.retiredBeadClearThroughSequence = Math.max(
+        st.retiredBeadClearThroughSequence,
+        acknowledgedClear.tokenSequence
+      );
       for (const [token, pendingClear] of st.pendingBeadClears) {
         if (pendingClear.tokenPrefix !== acknowledgedClear.tokenPrefix ||
             pendingClear.tokenSequence > acknowledgedClear.tokenSequence) continue;
         st.pendingBeadClears.delete(token);
-        retireBeadClearToken(token);
       }
     }
 

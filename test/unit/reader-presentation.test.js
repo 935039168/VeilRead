@@ -659,7 +659,7 @@ test('evicted local clear tokens are treated as authoritative external clears', 
   assert.equal(bead.style.top, '852px');
 });
 
-test('retired local clear tokens stay bounded and evicted tokens become authoritative', () => {
+test('a retirement watermark remembers every confirmed token without trusting unknown tokens', () => {
   const geometryResets = [];
   const { reader } = createReaderHarness({
     onGeometry(geometry) { geometryResets.push({ ...geometry }); },
@@ -683,15 +683,39 @@ test('retired local clear tokens stay bounded and evicted tokens become authorit
   assert.equal(bead.style.left, '1128px');
   assert.equal(bead.style.top, '702px');
 
-  const retainedRetiredToken = settingsFor('float');
-  Object.assign(retainedRetiredToken.display.float, geometryResets[1]);
-  reader.applySettings(retainedRetiredToken);
+  const oldestRetiredToken = settingsFor('float');
+  Object.assign(oldestRetiredToken.display.float, geometryResets[0]);
+  reader.applySettings(oldestRetiredToken);
   assert.equal(bead.style.left, '1128px');
   assert.equal(bead.style.top, '702px');
 
-  const evictedRetiredToken = settingsFor('float');
-  Object.assign(evictedRetiredToken.display.float, geometryResets[0]);
-  reader.applySettings(evictedRetiredToken);
+  const firstToken = geometryResets[0].beadClearToken;
+  const ownPrefix = firstToken.slice(0, firstToken.lastIndexOf(':'));
+  const futureOwnToken = settingsFor('float');
+  Object.assign(futureOwnToken.display.float, geometryResets[0], {
+    beadClearToken: `${ownPrefix}:999`,
+  });
+  reader.applySettings(futureOwnToken);
+  assert.equal(bead.style.left, '1152px');
+  assert.equal(bead.style.top, '852px');
+
+  reader.show();
+  reader.collapse();
+  const malformedOwnToken = settingsFor('float');
+  Object.assign(malformedOwnToken.display.float, geometryResets[0], {
+    beadClearToken: `${ownPrefix}:not-a-sequence`,
+  });
+  reader.applySettings(malformedOwnToken);
+  assert.equal(bead.style.left, '1152px');
+  assert.equal(bead.style.top, '852px');
+
+  reader.show();
+  reader.collapse();
+  const differentPrefixToken = settingsFor('float');
+  Object.assign(differentPrefixToken.display.float, geometryResets[0], {
+    beadClearToken: 'external-reader:1',
+  });
+  reader.applySettings(differentPrefixToken);
   assert.equal(bead.style.left, '1152px');
   assert.equal(bead.style.top, '852px');
 });
