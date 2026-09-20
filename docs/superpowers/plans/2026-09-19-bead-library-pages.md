@@ -1,7 +1,7 @@
 # Recovery Bead, Library, and Pages Implementation Plan
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Keep the floating recovery bead anchored to the browser's right and bottom edges, remove the unusable library open action, and publish the complete bilingual GitHub Pages site while retaining the store “Coming soon” state.
+**Goal:** Keep the floating recovery bead anchored to the browser's right and bottom edges, remove the unusable library open action, and prepare the complete bilingual GitHub Pages site while retaining the store “Coming soon” state.
 
 **Architecture:** Store recovery-bead geometry as `{ right, bottom }`, convert legacy `{ x, y }` values at the reader boundary, and derive CSS left/top coordinates from the current viewport without mutating the saved anchor during resize. Keep library management independent from content-script launching. Treat the checked-in `site/` tree as the only Pages artifact and make release audit enforce deployment and store-status contracts.
 
@@ -124,13 +124,13 @@ Stage only the four task files and commit with `fix: keep settings library manag
 
 **Step 1: Write failing deployment and status tests**
 
-Extend release-audit tests to require `enablement: true` beneath `actions/configure-pages@v5`, require both product pages to retain their localized Chrome and Edge coming-soon labels, and verify every required public page remains in the checked-in site tree.
+Extend release-audit tests to require `actions/configure-pages`, artifact upload, and deployment with the minimal Pages permissions, while rejecting `enablement: true` and repository-stored PAT secrets. Require both product pages to retain one structured, localized Chrome and Edge coming-soon status, and verify every required public page remains in the checked-in site tree.
 
-Run `node --test test/unit/release-audit.test.js` and confirm the Pages enablement assertion fails.
+Run `node --test test/unit/release-audit.test.js` and confirm the new deployment and status assertions fail before implementation.
 
 **Step 2: Enforce the site contract in release audit**
 
-Add localized store-status checks to `auditPublicSite`. Add `enablement: true` to the Pages configuration step, leaving the artifact path as `site` and retaining only `contents: read`, `pages: write`, and `id-token: write` permissions. Do not add store URLs or downloadable packages.
+Add localized structured store-status checks to `auditPublicSite`. Keep the Pages configuration step on its default `GITHUB_TOKEN`, leave the artifact path as `site`, and retain only `contents: read`, `pages: write`, and `id-token: write` permissions. The workflow must not contain a PAT or attempt first-time enablement. Do not add store URLs or downloadable packages.
 
 **Step 3: Verify the full release gate**
 
@@ -145,9 +145,9 @@ Confirm the package excludes development-only files and the release audit accept
 
 **Step 4: Commit**
 
-Stage only the workflow, audit implementation, and audit test. Commit with `ci: enable and audit GitHub Pages deployment`.
+Stage only the workflow, audit implementation, and audit test. Commit the deployment contract without claiming that Pages is enabled or deployed.
 
-### Task 5: Review, push, deploy, and verify production URLs
+### Task 5: Review, push, and verify Pages readiness
 
 **Files:**
 - Review: all files changed by Tasks 1–4
@@ -169,10 +169,10 @@ Use the requesting-code-review skill against the final diff. Re-run focused test
 
 Push `master` to `https://github.com/935039168/VeilRead.git` and confirm the remote head matches local HEAD.
 
-**Step 5: Monitor GitHub Pages**
+**Step 5: Resolve the external Pages prerequisite**
 
-Wait for the `Deploy VeilRead Pages` workflow triggered by the push. If repository enablement still blocks deployment, inspect the failure and enable Pages through the GitHub API with `build_type=workflow`, then rerun the workflow.
+Record the current platform state accurately: the repository is Private, the current plan does not support Pages for it, the Pages API creation request returned 422, and the site therefore remains 404. The owner must either make the repository Public and then enable Pages once through repository settings or an external maintainer API call, or upgrade to a plan that supports Private Pages and then perform that one-time enablement. Do not store a PAT in the repository or workflow. Until this choice and activation are complete, a failed workflow is expected and deployment must not be reported as complete.
 
-**Step 6: Verify every public route**
+**Step 6: Verify every public route after activation**
 
-Request the root, both language home pages, both privacy pages, both support pages, and the rights page. Require HTTP success, correct language content, working navigation, and unchanged “即将上线 / Coming soon” labels before reporting completion.
+After the owner has enabled Pages and the deployment workflow succeeds, request the root, both language home pages, both privacy pages, both support pages, and the rights page. Require HTTP success, correct language content, working navigation, and unchanged “即将上线 / Coming soon” labels before reporting completion; otherwise retain the explicit 404/not-deployed status.

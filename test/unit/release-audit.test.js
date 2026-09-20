@@ -233,6 +233,22 @@ test('release package roots exclude dependency manifests and installed modules',
     assert.equal(names.some((name) => name === forbidden || name.startsWith(forbidden)), false, `runtime package should exclude ${forbidden}`);
   }
 });
+test('development lockfile resolves registry packages only from the official npm registry', () => {
+  const lockfile = fs.readFileSync(path.join(root, 'package-lock.json'), 'utf8');
+  assert.doesNotMatch(lockfile, /npmmirror|registry\.npm\.taobao/i);
+
+  const lock = JSON.parse(lockfile);
+  const resolvedPackages = Object.entries(lock.packages)
+    .filter(([, metadata]) => typeof metadata.resolved === 'string');
+  assert.ok(resolvedPackages.length > 0, 'lockfile should pin development packages');
+  for (const [packagePath, metadata] of resolvedPackages) {
+    assert.equal(new URL(metadata.resolved).hostname, 'registry.npmjs.org', `${packagePath} should use the official npm registry`);
+  }
+  assert.equal(
+    lock.packages['node_modules/parse5'].resolved,
+    'https://registry.npmjs.org/parse5/-/parse5-7.3.0.tgz',
+  );
+});
 test('release documentation links every compliance resource and command', () => {
   const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
   for (const link of ['RIGHTS.md', 'store/README.md', 'docs/releasing.md', 'site/privacy/zh-CN/', 'site/privacy/en/', 'site/support/zh-CN/', 'site/support/en/']) {
@@ -240,6 +256,27 @@ test('release documentation links every compliance resource and command', () => 
   }
   const releasing = fs.readFileSync(path.join(root, 'docs/releasing.md'), 'utf8');
   for (const text of ['npm run release:check', 'npm run assets', 'npm run package', 'Chrome', 'Edge', '开发者模式', '人工提交', '版本', 'GitHub Actions', 'Git tag']) {
+    assert.ok(releasing.includes(text), `release guide should contain ${text}`);
+  }
+});
+test('documentation separates runtime dependencies from release tooling and states the Pages activation constraint', () => {
+  const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
+  for (const text of ['扩展运行时纯原生 JS', '无运行时依赖', '无构建步骤', 'Node.js 20', 'npm ci', 'parse5']) {
+    assert.ok(readme.includes(text), `README should contain ${text}`);
+  }
+
+  const design = fs.readFileSync(path.join(root, 'docs/superpowers/specs/2026-09-19-bead-library-pages-design.md'), 'utf8');
+  const plan = fs.readFileSync(path.join(root, 'docs/superpowers/plans/2026-09-19-bead-library-pages.md'), 'utf8');
+  const releasing = fs.readFileSync(path.join(root, 'docs/releasing.md'), 'utf8');
+  for (const [name, document] of [['design', design], ['plan', plan]]) {
+    for (const text of ['Private', '422', 'Public', 'PAT', '404']) {
+      assert.ok(document.includes(text), `${name} should record the Pages ${text} constraint`);
+    }
+    assert.doesNotMatch(document, /require `enablement:\s*true`|Add `enablement:\s*true`|允许 `configure-pages`[^。]*启用/i);
+  }
+  assert.doesNotMatch(design, /发布并验证/);
+  assert.doesNotMatch(plan, /publish the complete bilingual GitHub Pages site/i);
+  for (const text of ['Private', '422', 'Public', 'PAT']) {
     assert.ok(releasing.includes(text), `release guide should contain ${text}`);
   }
 });
