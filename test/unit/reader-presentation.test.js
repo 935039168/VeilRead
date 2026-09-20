@@ -555,7 +555,7 @@ test('a delayed replay of a locally persisted bead does not override a later col
   assert.equal(bead.style.top, '760px');
 });
 
-test('an external anchor after a local clear does not make the following null look stale', () => {
+test('an external anchor is not cleared by a delayed issued local acknowledgement', () => {
   const geometryResets = [];
   const { reader } = createReaderHarness({
     onGeometry(geometry) { geometryResets.push({ ...geometry }); },
@@ -584,8 +584,8 @@ test('an external anchor after a local clear does not make the following null lo
   const delayedClear = settingsFor('float');
   Object.assign(delayedClear.display.float, geometryResets[0]);
   reader.applySettings(delayedClear);
-  assert.equal(bead.style.left, '1152px');
-  assert.equal(bead.style.top, '852px');
+  assert.equal(bead.style.left, '1060px');
+  assert.equal(bead.style.top, '760px');
 });
 
 test('an unmatched external null clears a pending local reset with or without a token', () => {
@@ -638,7 +638,7 @@ test('consecutive local bead clears use distinct acknowledgement tokens', () => 
   assert.notEqual(geometryResets[0].beadClearToken, geometryResets[1].beadClearToken);
 });
 
-test('evicted local clear tokens are treated as authoritative external clears', () => {
+test('all issued local clear tokens remain recognizable after pending eviction', () => {
   const geometryResets = [];
   const { reader } = createReaderHarness({
     onGeometry(geometry) { geometryResets.push({ ...geometry }); },
@@ -655,37 +655,6 @@ test('evicted local clear tokens are treated as authoritative external clears', 
   const evictedClear = settingsFor('float');
   Object.assign(evictedClear.display.float, geometryResets[0]);
   reader.applySettings(evictedClear);
-  assert.equal(bead.style.left, '1152px');
-  assert.equal(bead.style.top, '852px');
-});
-
-test('a retirement watermark remembers every confirmed token without trusting unknown tokens', () => {
-  const geometryResets = [];
-  const { reader } = createReaderHarness({
-    onGeometry(geometry) { geometryResets.push({ ...geometry }); },
-  });
-  const settings = settingsFor('float');
-  settings.display.float.x = 0;
-  settings.display.float.y = 100;
-  reader.applySettings(settings);
-  reader.show();
-  const grab = reader.panel.children.find((child) => child.classList.contains('vr-grab'));
-
-  for (let i = 0; i < 33; i += 1) {
-    grab.dispatch('dblclick');
-    const acknowledgement = settingsFor('float');
-    Object.assign(acknowledgement.display.float, geometryResets.at(-1));
-    reader.applySettings(acknowledgement);
-  }
-
-  reader.collapse();
-  const bead = reader.el.children.find((child) => child.classList.contains('vr-bead'));
-  assert.equal(bead.style.left, '1128px');
-  assert.equal(bead.style.top, '702px');
-
-  const oldestRetiredToken = settingsFor('float');
-  Object.assign(oldestRetiredToken.display.float, geometryResets[0]);
-  reader.applySettings(oldestRetiredToken);
   assert.equal(bead.style.left, '1128px');
   assert.equal(bead.style.top, '702px');
 
