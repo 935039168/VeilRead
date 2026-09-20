@@ -493,6 +493,7 @@
   const BEAD_SIZE = 40;
   const BEAD_SAFE_INSET = 8;
   const MAX_PENDING_BEAD_CLEARS = 32;
+  const MAX_RETIRED_BEAD_CLEARS = 32;
   let readerInstanceSequence = 0;
 
   function clampBeadCoordinate(value, viewportSize) {
@@ -647,6 +648,7 @@
       authoritativeBeadKey: undefined,
       localBeadAnchorGeneration: 0,
       pendingBeadClears: new Map(),
+      retiredBeadClears: new Set(),
     };
     let saveTimer = null;
     let toastTimer = null;
@@ -664,13 +666,16 @@
       const storedBeadBaseKey = beadSettingKey(storedBead);
       let supersededLocalClear = false;
       let forceStoredBead = false;
-      let replayedBaseAnchor = false;
+      let ignoredStoredBead = false;
       if (storedBead == null) {
         const pendingClear = typeof storedBeadClearToken === 'string'
           ? st.pendingBeadClears.get(storedBeadClearToken)
           : null;
-        if (pendingClear) {
-          st.pendingBeadClears.delete(storedBeadClearToken);
+        if (typeof storedBeadClearToken === 'string' &&
+            st.retiredBeadClears.has(storedBeadClearToken)) {
+          ignoredStoredBead = true;
+        } else if (pendingClear) {
+          retireBeadClearsThrough(pendingClear);
           supersededLocalClear = st.localBeadAnchorGeneration !==
             pendingClear.localAnchorGeneration;
           forceStoredBead = true;
@@ -680,12 +685,12 @@
         }
       } else if ([...st.pendingBeadClears.values()].some((pendingClear) =>
         pendingClear.baseBeadKey === storedBeadBaseKey)) {
-        replayedBaseAnchor = true;
+        ignoredStoredBead = true;
       } else if (st.pendingBeadClears.size) {
         st.pendingBeadClears.clear();
         forceStoredBead = true;
       }
-      if (!replayedBaseAnchor && (storedBeadKey !== st.beadSettingKey || forceStoredBead)) {
+      if (!ignoredStoredBead && (storedBeadKey !== st.beadSettingKey || forceStoredBead)) {
         st.beadSettingKey = storedBeadKey;
         st.authoritativeBeadKey = storedBeadBaseKey;
         if (!supersededLocalClear) {
@@ -761,6 +766,22 @@
 
     function recordBeadPersistenceIntent(bead) {
       st.authoritativeBeadKey = beadSettingKey(bead);
+    }
+
+    function retireBeadClearToken(token) {
+      st.retiredBeadClears.add(token);
+      if (st.retiredBeadClears.size > MAX_RETIRED_BEAD_CLEARS) {
+        st.retiredBeadClears.delete(st.retiredBeadClears.values().next().value);
+      }
+    }
+
+    function retireBeadClearsThrough(acknowledgedClear) {
+      for (const [token, pendingClear] of st.pendingBeadClears) {
+        if (pendingClear.tokenPrefix !== acknowledgedClear.tokenPrefix ||
+            pendingClear.tokenSequence > acknowledgedClear.tokenSequence) continue;
+        st.pendingBeadClears.delete(token);
+        retireBeadClearToken(token);
+      }
     }
 
     // rAF 在后台标签页不触发，用 setTimeout 保证位置恢复
@@ -1468,6 +1489,8 @@
         st.pendingBeadClears.set(beadClearToken, {
           localAnchorGeneration: st.localBeadAnchorGeneration,
           baseBeadKey: st.authoritativeBeadKey || beadSettingKey(null),
+          tokenPrefix: beadClearTokenPrefix,
+          tokenSequence: beadClearTokenSequence,
         });
         if (st.pendingBeadClears.size > MAX_PENDING_BEAD_CLEARS) {
           st.pendingBeadClears.delete(st.pendingBeadClears.keys().next().value);

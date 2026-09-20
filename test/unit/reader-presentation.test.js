@@ -426,6 +426,49 @@ test('concurrent local clear acknowledgements each preserve a newer collapse anc
   }
 });
 
+test('a newer clear acknowledgement retires debounced clears without hiding their old base', () => {
+  const geometryResets = [];
+  const { reader } = createReaderHarness({
+    onGeometry(geometry) { geometryResets.push({ ...geometry }); },
+  });
+  const baseSettings = settingsFor('float');
+  baseSettings.display.float.bead = { right: 260, bottom: 210 };
+  reader.applySettings(baseSettings);
+  reader.show();
+  const grab = reader.panel.children.find((child) => child.classList.contains('vr-grab'));
+
+  for (const clientX of [104, 204]) {
+    const rect = reader.panel.getBoundingClientRect();
+    grab.dispatch('pointerdown', {
+      button: 0, pointerId: 1, clientX: rect.left + 4, clientY: rect.top + 10, preventDefault() {},
+    });
+    grab.dispatch('pointermove', { clientX, clientY: 110 });
+    grab.dispatch('pointerup', { clientX, clientY: 110 });
+  }
+  assert.equal(geometryResets.length, 2);
+
+  reader.collapse();
+  const bead = reader.el.children.find((child) => child.classList.contains('vr-bead'));
+  assert.equal(bead.style.left, '632px');
+  assert.equal(bead.style.top, '652px');
+
+  const latestAcknowledgement = settingsFor('float');
+  Object.assign(latestAcknowledgement.display.float, geometryResets[1]);
+  reader.applySettings(latestAcknowledgement);
+  assert.equal(bead.style.left, '632px');
+  assert.equal(bead.style.top, '652px');
+
+  reader.applySettings(baseSettings);
+  assert.equal(bead.style.left, '900px');
+  assert.equal(bead.style.top, '650px');
+
+  const lateDebouncedAcknowledgement = settingsFor('float');
+  Object.assign(lateDebouncedAcknowledgement.display.float, geometryResets[0]);
+  reader.applySettings(lateDebouncedAcknowledgement);
+  assert.equal(bead.style.left, '900px');
+  assert.equal(bead.style.top, '650px');
+});
+
 test('a replayed base anchor does not discard its pending local clear acknowledgement', () => {
   const geometryResets = [];
   const { reader } = createReaderHarness({
@@ -612,6 +655,43 @@ test('evicted local clear tokens are treated as authoritative external clears', 
   const evictedClear = settingsFor('float');
   Object.assign(evictedClear.display.float, geometryResets[0]);
   reader.applySettings(evictedClear);
+  assert.equal(bead.style.left, '1152px');
+  assert.equal(bead.style.top, '852px');
+});
+
+test('retired local clear tokens stay bounded and evicted tokens become authoritative', () => {
+  const geometryResets = [];
+  const { reader } = createReaderHarness({
+    onGeometry(geometry) { geometryResets.push({ ...geometry }); },
+  });
+  const settings = settingsFor('float');
+  settings.display.float.x = 0;
+  settings.display.float.y = 100;
+  reader.applySettings(settings);
+  reader.show();
+  const grab = reader.panel.children.find((child) => child.classList.contains('vr-grab'));
+
+  for (let i = 0; i < 33; i += 1) {
+    grab.dispatch('dblclick');
+    const acknowledgement = settingsFor('float');
+    Object.assign(acknowledgement.display.float, geometryResets.at(-1));
+    reader.applySettings(acknowledgement);
+  }
+
+  reader.collapse();
+  const bead = reader.el.children.find((child) => child.classList.contains('vr-bead'));
+  assert.equal(bead.style.left, '1128px');
+  assert.equal(bead.style.top, '702px');
+
+  const retainedRetiredToken = settingsFor('float');
+  Object.assign(retainedRetiredToken.display.float, geometryResets[1]);
+  reader.applySettings(retainedRetiredToken);
+  assert.equal(bead.style.left, '1128px');
+  assert.equal(bead.style.top, '702px');
+
+  const evictedRetiredToken = settingsFor('float');
+  Object.assign(evictedRetiredToken.display.float, geometryResets[0]);
+  reader.applySettings(evictedRetiredToken);
   assert.equal(bead.style.left, '1152px');
   assert.equal(bead.style.top, '852px');
 });
