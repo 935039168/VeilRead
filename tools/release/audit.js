@@ -22,10 +22,15 @@ function messageKey(value) {
 function auditManifestAndLocales(root) {
   const errors = [];
   const manifest = readJson(path.join(root, 'manifest.json'), errors);
-  if (!manifest) return errors;
+  const pkg = readJson(path.join(root, 'package.json'), errors);
+  const lock = readJson(path.join(root, 'package-lock.json'), errors);
+  if (!manifest || !pkg || !lock) return errors;
 
   if (manifest.manifest_version !== 3) errors.push('manifest.json: manifest_version must be 3');
   if (!/^\d+\.\d+\.\d+$/.test(String(manifest.version || ''))) errors.push('manifest.json: version must use MAJOR.MINOR.PATCH');
+  if (manifest.version !== pkg.version) errors.push('manifest.json: version must match package.json');
+  if (manifest.version !== lock.version) errors.push('manifest.json: version must match package-lock.json');
+  if (manifest.version !== (lock.packages && lock.packages[''] && lock.packages[''].version)) errors.push('manifest.json: version must match package-lock.json packages[""]');
   if (manifest.default_locale !== 'zh_CN') errors.push('manifest.json: default_locale must be zh_CN');
 
   const keys = ['name', 'description'].map((field) => {

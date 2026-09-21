@@ -39,21 +39,60 @@ function replaceProductStatuses(fixture, locale, markup) {
   fs.writeFileSync(file, updated);
 }
 
-test('manifest metadata is localized and its SemVer remains valid without a package version', (t) => {
+test('release version sync copies the manifest version to npm package metadata', (t) => {
+  const { syncReleaseVersion } = require('../../tools/release/sync-version.js');
+  const fixture = copyReleaseFixture('veilread-version-sync-', t);
+  const manifestFile = path.join(fixture, 'manifest.json');
+  const packageFile = path.join(fixture, 'package.json');
+  const lockFile = path.join(fixture, 'package-lock.json');
+  const manifest = JSON.parse(fs.readFileSync(manifestFile, 'utf8'));
+  const pkg = JSON.parse(fs.readFileSync(packageFile, 'utf8'));
+  const lock = JSON.parse(fs.readFileSync(lockFile, 'utf8'));
+  manifest.version = '7.8.9';
+  pkg.version = '0.0.1';
+  lock.version = '0.0.1';
+  lock.packages[''].version = '0.0.1';
+  fs.writeFileSync(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`);
+  fs.writeFileSync(packageFile, `${JSON.stringify(pkg, null, 2)}\n`);
+  fs.writeFileSync(lockFile, `${JSON.stringify(lock, null, 2)}\n`);
+
+  assert.equal(syncReleaseVersion(fixture), '7.8.9');
+
+  assert.equal(JSON.parse(fs.readFileSync(packageFile, 'utf8')).version, '7.8.9');
+  const synchronizedLock = JSON.parse(fs.readFileSync(lockFile, 'utf8'));
+  assert.equal(synchronizedLock.version, '7.8.9');
+  assert.equal(synchronizedLock.packages[''].version, '7.8.9');
+});
+
+test('manifest metadata is localized, validates SemVer, and matches generated package metadata', (t) => {
   const { auditManifestAndLocales } = require('../../tools/release/audit.js');
   const fixture = copyReleaseFixture('veilread-manifest-audit-', t);
   const packageFile = path.join(fixture, 'package.json');
+  const lockFile = path.join(fixture, 'package-lock.json');
   const pkg = JSON.parse(fs.readFileSync(packageFile, 'utf8'));
-  delete pkg.version;
+  const lock = JSON.parse(fs.readFileSync(lockFile, 'utf8'));
+  pkg.version = '0.0.1';
+  lock.version = '0.0.1';
+  lock.packages[''].version = '0.0.1';
   fs.writeFileSync(packageFile, `${JSON.stringify(pkg, null, 2)}\n`);
+  fs.writeFileSync(lockFile, `${JSON.stringify(lock, null, 2)}\n`);
 
-  assert.deepEqual(auditManifestAndLocales(fixture), []);
+  assert.deepEqual(auditManifestAndLocales(fixture), [
+    'manifest.json: version must match package.json',
+    'manifest.json: version must match package-lock.json',
+    'manifest.json: version must match package-lock.json packages[""]',
+  ]);
 
   const manifestFile = path.join(fixture, 'manifest.json');
   const manifest = JSON.parse(fs.readFileSync(manifestFile, 'utf8'));
   manifest.version = 'not-semver';
   fs.writeFileSync(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`);
-  assert.deepEqual(auditManifestAndLocales(fixture), ['manifest.json: version must use MAJOR.MINOR.PATCH']);
+  assert.deepEqual(auditManifestAndLocales(fixture), [
+    'manifest.json: version must use MAJOR.MINOR.PATCH',
+    'manifest.json: version must match package.json',
+    'manifest.json: version must match package-lock.json',
+    'manifest.json: version must match package-lock.json packages[""]',
+  ]);
 });
 test('public site provides complete bilingual privacy, support, and rights pages', () => {
   const { auditPublicSite } = require('../../tools/release/audit.js');
