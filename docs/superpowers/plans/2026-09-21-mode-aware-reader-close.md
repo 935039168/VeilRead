@@ -16,7 +16,7 @@
 - Modify: `reader/reader-core.js:875-910,1539-1542,1564-1574`
 - Test: `test/unit/reader-presentation.test.js`
 
-- [ ] **Step 1: Write the failing reader-presentation test**
+- [x] **Step 1: Write the failing reader-presentation test**
 
 Add this test after `mode changes clear incompatible beads and page panels`:
 
@@ -37,13 +37,13 @@ test('the close action collapses only a floating panel and hides every other pan
 });
 ```
 
-- [ ] **Step 2: Run the focused test to verify it fails**
+- [x] **Step 2: Run the focused test to verify it fails**
 
 Run: `node --test test/unit/reader-presentation.test.js`
 
 Expected: FAIL because `reader.closeForCurrentMode` does not exist.
 
-- [ ] **Step 3: Implement the minimal core action and wire the close button**
+- [x] **Step 3: Implement the minimal core action and wire the close button**
 
 Insert this function after `collapse()` in `reader/reader-core.js`:
 
@@ -56,13 +56,13 @@ function closeForCurrentMode() {
 
 Replace the binding with `btnClose.onclick = closeForCurrentMode;` and expose `closeForCurrentMode` after `collapse` in the returned API.
 
-- [ ] **Step 4: Run the focused test to verify it passes**
+- [x] **Step 4: Run the focused test to verify it passes**
 
 Run: `node --test test/unit/reader-presentation.test.js`
 
 Expected: PASS, including floating collapse and edge hide assertions.
 
-- [ ] **Step 5: Commit the core behavior**
+- [x] **Step 5: Commit the core behavior**
 
 Run: `git add reader/reader-core.js test/unit/reader-presentation.test.js; git commit -m "fix: close readers by active display mode"`
 
@@ -73,7 +73,7 @@ Run: `git add reader/reader-core.js test/unit/reader-presentation.test.js; git c
 - Modify: `test/unit/content-reader-ui.test.js:139-143,182-224`
 - Test: `test/unit/content-reader-ui.test.js`
 
-- [ ] **Step 1: Write failing content-script integration tests**
+- [x] **Step 1: Write failing content-script integration tests**
 
 Extend `loadContentHarness()` with a `showDelay = 0` option, apply it to every `makeSettings()` result used by the harness, and expose the stored mousemove listeners:
 
@@ -123,13 +123,13 @@ test('changing away from edge mode cancels a pending side-edge activation', asyn
 });
 ```
 
-- [ ] **Step 2: Run the focused tests to verify they fail**
+- [x] **Step 2: Run the focused tests to verify they fail**
 
 Run: `node --test test/unit/content-reader-ui.test.js`
 
 Expected: FAIL because floating mode still opens from the old mousemove handler.
 
-- [ ] **Step 3: Implement the mode gate and reset stale side triggers**
+- [x] **Step 3: Implement the mode gate and reset stale side triggers**
 
 Insert after `pageReaderEnabled()`:
 
@@ -151,13 +151,13 @@ if (previousMode !== nextMode) {
 
 This leaves explicit extension commands intact while suppressing float/sidebar browser-side activation.
 
-- [ ] **Step 4: Run the focused tests to verify they pass**
+- [x] **Step 4: Run the focused tests to verify they pass**
 
 Run: `node --test test/unit/content-reader-ui.test.js`
 
 Expected: PASS; hidden float stays bead-only, edge reopens an edge panel, and mode switching cannot leak a delayed open.
 
-- [ ] **Step 5: Commit the side-trigger policy**
+- [x] **Step 5: Commit the side-trigger policy**
 
 Run: `git add content/content.js test/unit/content-reader-ui.test.js; git commit -m "fix: limit side triggers to edge reader mode"`
 
@@ -169,7 +169,7 @@ Run: `git add content/content.js test/unit/content-reader-ui.test.js; git commit
 - Test: `test/unit/content-reader-ui.test.js`
 - Test: `test/unit/reader-regressions.test.js`
 
-- [ ] **Step 1: Add manual acceptance instructions**
+- [x] **Step 1: Add manual acceptance instructions**
 
 Append this section to `docs/manual-acceptance.md`:
 
@@ -182,18 +182,22 @@ Append this section to `docs/manual-acceptance.md`:
 - 在贴边面板等待侧边延迟打开时切换到自由悬浮窗，小圆点和正文窗口均不会意外出现。
 ```
 
-- [ ] **Step 2: Run focused regressions**
+- [x] **Step 2: Run focused regressions**
 
 Run: `node --test test/unit/reader-presentation.test.js test/unit/content-reader-ui.test.js test/unit/reader-regressions.test.js`
 
 Expected: PASS with zero failures.
 
-- [ ] **Step 3: Run the release verification**
+- [x] **Step 3: Run the release verification**
 
 Run: `npm run release:check`
 
 Expected: PASS with the complete unit suite reporting zero failures.
 
-- [ ] **Step 4: Commit documentation**
+- [x] **Step 4: Commit documentation**
 
 Run: `git add docs/manual-acceptance.md; git commit -m "docs: cover mode-aware reader closing"`
+
+### Review follow-up: Guard authoritative settings races
+
+The Task 2 review uncovered two asynchronous cases beyond the initial hot-zone test: a stale tray-open request and a delayed, old `store.getSettings()` result. Both were covered by failing integration regressions before the production guard was added. The final implementation invalidates a cached authoritative-settings read when settings change and applies a read result only when it belongs to the current settings generation.
