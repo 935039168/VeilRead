@@ -15,6 +15,7 @@
   let emergency = false;        // 紧急隐藏：禁用一切悬浮自动出现
   let contentBootstrapped = false;
   let firstOpenSettingsPromise = null;
+  let settingsGeneration = 0;
   let openRequestId = 0;
   let lastUiRevision = -1;
   let readerUiRegistrationPromise = null;
@@ -137,16 +138,20 @@
 
   async function loadAuthoritativeSettingsBeforeFirstOpen() {
     if (!firstOpenSettingsPromise) {
-      firstOpenSettingsPromise = store.getSettings().then((latest) => {
+      const generation = settingsGeneration;
+      let task;
+      task = store.getSettings().then((latest) => {
+        if (generation !== settingsGeneration) return settings;
         settings = latest;
         hideDelay.cancel();
         reader.applySettings(latest);
         buildTray();
         return latest;
       }).catch((err) => {
-        firstOpenSettingsPromise = null;
+        if (firstOpenSettingsPromise === task) firstOpenSettingsPromise = null;
         throw err;
       });
+      firstOpenSettingsPromise = task;
     }
     return firstOpenSettingsPromise;
   }
@@ -649,6 +654,8 @@
     store.onSettingsChanged((s) => {
       const previousMode = settings && settings.display && settings.display.mode;
       const nextMode = s && s.display && s.display.mode;
+      settingsGeneration += 1;
+      firstOpenSettingsPromise = null;
       if (previousMode !== nextMode) {
         cancelPendingOpen();
         edgeTrigger.onResize();

@@ -34,7 +34,7 @@ class FakeElement {
 
 async function loadContentHarness({
   mode = 'float', readySnapshot = null, deferInitialReady = false, deferCurrent = false,
-  deferBookOpen = false, deferFetch = false, showDelay = 0,
+  deferBookOpen = false, deferFetch = false, showDelay = 0, deferAuthoritativeSettings = false,
 } = {}) {
   let currentSettings = makeSettings(mode, showDelay);
   let settingsReads = 0;
@@ -53,6 +53,8 @@ async function loadContentHarness({
   let resolveBookOpen = null;
   let resolveFetchText = null;
   let rejectFetchText = null;
+  let resolveSettingsRead = null;
+  let deferNextSettingsRead = deferAuthoritativeSettings;
 
   const reader = {
     el: { dataset: { mode: mode === 'float' ? 'float' : (mode === 'edge' ? 'edge-right' : 'disabled') } },
@@ -104,7 +106,15 @@ async function loadContentHarness({
   context.globalThis = context;
 
   const store = {
-    async getSettings() { settingsReads += 1; return structuredClone(currentSettings); },
+    async getSettings() {
+      settingsReads += 1;
+      const snapshot = structuredClone(currentSettings);
+      if (deferNextSettingsRead && settingsReads > 1) {
+        deferNextSettingsRead = false;
+        return new Promise((resolve) => { resolveSettingsRead = () => resolve(snapshot); });
+      }
+      return snapshot;
+    },
     async getCurrent() {
       currentReads += 1;
       if (!deferCurrent) return { bookId: null };
@@ -242,6 +252,12 @@ async function loadContentHarness({
       rejectFetchText = null;
       reject(error);
     },
+    async resolveSettingsRead() {
+      const resolve = resolveSettingsRead;
+      resolveSettingsRead = null;
+      resolve();
+      await new Promise((done) => setTimeout(done, 0));
+    },
   };
 }
 
@@ -326,6 +342,17 @@ test('a stale edge hot-zone request cannot show after authoritative float settin
 
   assert.equal(harness.calls.some(([name]) => name === 'show'), false);
   assert.equal(harness.reader.getPresentation(), 'hidden');
+});
+
+test('a stale authoritative edge read cannot replace newer float settings', async () => {
+  const harness = await loadContentHarness({ mode: 'edge', deferAuthoritativeSettings: true });
+  await harness.mousemove(1199, 450);
+  harness.emitSettings('float');
+  await harness.resolveSettingsRead();
+
+  assert.equal(harness.reader.el.dataset.mode, 'float');
+  assert.equal(harness.calls.some(([name]) => name === 'show'), false);
+  assert.equal(harness.tray, undefined);
 });
 
 test('tray follows edge mode and cannot open after authoritative float settings load', async () => {
