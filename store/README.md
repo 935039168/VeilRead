@@ -28,11 +28,12 @@
 ## 发布命令
 
 ```text
+npm run release:sync-version
 npm run release:check
 npm run assets
 npm run package
 ```
 
-Chrome 和 Edge 始终上传同一个校验通过的 ZIP；商店上传保持人工操作。
+每次发版只手动更新 `manifest.json` 的 `version`，再运行 `npm run release:sync-version` 生成并提交 npm 版本元数据。Chrome 和 Edge 始终上传同一个校验通过的 ZIP；商店上传保持人工操作。
 
 完整步骤见 [标准化首发流程](../docs/releasing.md)，浏览器侧载检查见 [手工验收清单](../docs/manual-acceptance.md)。

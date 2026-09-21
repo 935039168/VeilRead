@@ -1,4 +1,4 @@
-# VeilRead 首发提交清单
+# VeilRead 商店发布清单
 
 ## 账号准备
 
@@ -8,7 +8,8 @@
 
 ## 构建
 
-- [ ] Manifest 与 `package.json` 版本一致并已递增。
+- [ ] 仅手动修改 `manifest.json` 的版本号，且高于商店已发布版本。
+- [ ] 已运行 `npm run release:sync-version`，并提交自动同步的 `package.json` 与 `package-lock.json` 版本元数据。
 - [ ] `npm run release:check` 通过。
 - [ ] `npm run assets` 后人工检查全部商店图片。
 - [ ] `npm run package` 生成唯一发布 ZIP。
