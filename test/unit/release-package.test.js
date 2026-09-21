@@ -78,11 +78,16 @@ function copyReleaseFixture(prefix, t) {
   return fixture;
 }
 
+function fixtureReleaseOutput(fixture) {
+  const manifest = JSON.parse(fs.readFileSync(path.join(fixture, 'manifest.json'), 'utf8'));
+  return path.join(fixture, 'dist', `VeilRead-v${manifest.version}.zip`);
+}
+
 test('package staging preserves an existing release when staged bytes fail verification', (t) => {
   const { buildPackage } = require('../../tools/release/package.js');
   const fixture = copyReleaseFixture('veilread-package-atomic-', t);
   const dist = path.join(fixture, 'dist');
-  const output = path.join(dist, 'VeilRead-v1.0.0.zip');
+  const output = fixtureReleaseOutput(fixture);
   const temporary = output + '.tmp';
   fs.mkdirSync(dist, { recursive: true });
   fs.writeFileSync(output, 'previous-valid-release');
@@ -106,7 +111,7 @@ test('package staging preserves an existing release when atomic rename fails', (
   const { buildPackage } = require('../../tools/release/package.js');
   const fixture = copyReleaseFixture('veilread-package-rename-', t);
   const dist = path.join(fixture, 'dist');
-  const output = path.join(dist, 'VeilRead-v1.0.0.zip');
+  const output = fixtureReleaseOutput(fixture);
   const temporary = output + '.tmp';
   fs.mkdirSync(dist, { recursive: true });
   fs.writeFileSync(output, 'previous-valid-release');

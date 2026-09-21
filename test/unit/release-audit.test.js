@@ -18,6 +18,19 @@ function copySiteFixture(prefix, t) {
   return fixture;
 }
 
+function copyReleaseFixture(prefix, t) {
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  t.after(() => fs.rmSync(fixture, { recursive: true, force: true }));
+  fs.cpSync(root, fixture, {
+    recursive: true,
+    filter(source) {
+      const relative = path.relative(root, source).replaceAll('\\', '/');
+      return !relative.startsWith('.git') && !relative.startsWith('.claude') && !relative.startsWith('node_modules') && !relative.startsWith('dist');
+    },
+  });
+  return fixture;
+}
+
 function replaceProductStatuses(fixture, locale, markup) {
   const file = path.join(fixture, 'site', locale, 'index.html');
   const original = fs.readFileSync(file, 'utf8');
@@ -26,9 +39,21 @@ function replaceProductStatuses(fixture, locale, markup) {
   fs.writeFileSync(file, updated);
 }
 
-test('manifest metadata is localized and versions stay aligned', () => {
+test('manifest metadata is localized and its SemVer remains valid without a package version', (t) => {
   const { auditManifestAndLocales } = require('../../tools/release/audit.js');
-  assert.deepEqual(auditManifestAndLocales(root), []);
+  const fixture = copyReleaseFixture('veilread-manifest-audit-', t);
+  const packageFile = path.join(fixture, 'package.json');
+  const pkg = JSON.parse(fs.readFileSync(packageFile, 'utf8'));
+  delete pkg.version;
+  fs.writeFileSync(packageFile, `${JSON.stringify(pkg, null, 2)}\n`);
+
+  assert.deepEqual(auditManifestAndLocales(fixture), []);
+
+  const manifestFile = path.join(fixture, 'manifest.json');
+  const manifest = JSON.parse(fs.readFileSync(manifestFile, 'utf8'));
+  manifest.version = 'not-semver';
+  fs.writeFileSync(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`);
+  assert.deepEqual(auditManifestAndLocales(fixture), ['manifest.json: version must use MAJOR.MINOR.PATCH']);
 });
 test('public site provides complete bilingual privacy, support, and rights pages', () => {
   const { auditPublicSite } = require('../../tools/release/audit.js');
