@@ -173,13 +173,24 @@ async function loadContentHarness({
   vm.runInContext(fs.readFileSync('content/content.js', 'utf8'), context);
   await new Promise((resolve) => setTimeout(resolve, 0));
 
+  function findTray() {
+    const host = document.documentElement.children.find((node) => node.shadow);
+    return host && host.shadow.children.find((node) => node.style.width === '5px' && !node.removed);
+  }
+
   return {
     calls, sent, reader, get readerHost() { return readerHost; },
+    get tray() { return findTray(); },
     settingsReads: () => settingsReads, currentReads: () => currentReads,
     setSettings(nextMode) { currentSettings = makeSettings(nextMode); },
     emitSettings(nextMode) { currentSettings = makeSettings(nextMode); settingsListener(structuredClone(currentSettings)); },
     async mousemove(x, y) {
       for (const listener of documentListeners.mousemove || []) listener({ clientX: x, clientY: y });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    },
+    async trayPointerEnter() {
+      const tray = findTray();
+      for (const listener of tray.listeners.pointerenter || []) listener();
       await new Promise((resolve) => setTimeout(resolve, 0));
     },
     async message(message) {
@@ -306,6 +317,34 @@ test('a mode change cancels a delayed edge hot-zone opening', async () => {
 
   assert.equal(harness.reader.el.dataset.mode, 'float');
   assert.equal(harness.calls.some(([name]) => name === 'show'), false);
+});
+
+test('a stale edge hot-zone request cannot show after authoritative float settings load', async () => {
+  const harness = await loadContentHarness({ mode: 'edge' });
+  harness.setSettings('float');
+  await harness.mousemove(1199, 450);
+
+  assert.equal(harness.calls.some(([name]) => name === 'show'), false);
+  assert.equal(harness.reader.getPresentation(), 'hidden');
+});
+
+test('tray follows edge mode and cannot open after authoritative float settings load', async () => {
+  const float = await loadContentHarness({ mode: 'float' });
+  assert.equal(float.tray, undefined);
+
+  const edge = await loadContentHarness({ mode: 'edge' });
+  assert.ok(edge.tray);
+  edge.emitSettings('float');
+  assert.equal(edge.tray, undefined);
+  edge.emitSettings('edge');
+  assert.ok(edge.tray);
+
+  const stale = await loadContentHarness({ mode: 'edge' });
+  assert.ok(stale.tray);
+  stale.setSettings('float');
+  await stale.trayPointerEnter();
+  assert.equal(stale.calls.some(([name]) => name === 'show'), false);
+  assert.equal(stale.reader.getPresentation(), 'hidden');
 });
 
 test('visibility changes hide only a full panel and preserve a synchronized bead', async () => {

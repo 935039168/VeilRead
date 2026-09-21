@@ -272,7 +272,7 @@
   async function openReader(opts, existingRequestId) {
     const requestId = Number.isInteger(existingRequestId) ? existingRequestId : beginOpenRequest();
     await loadAuthoritativeSettingsBeforeFirstOpen();
-    if (!canFinishOpen(requestId)) {
+    if (!canFinishOpen(requestId) || (opts.viaHover && !edgePanelTriggerEnabled())) {
       if (!pageReaderEnabled()) reader.hide({ notify: false, reason: 'sidebar-mode' });
       return false;
     }
