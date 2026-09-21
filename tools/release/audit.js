@@ -172,7 +172,7 @@ function auditPublicSite(root) {
       if (browser === 'edge') {
         if (status.href !== expected.href) errors.push(`${relative}: Edge status href must be ${expected.href}`);
         if (status.target !== expected.target) errors.push(`${relative}: Edge status target must be ${expected.target}`);
-        if (!status.rel.split(/\s+/).includes(expected.rel)) errors.push(`${relative}: Edge status rel must include ${expected.rel}`);
+        if (status.rel !== expected.rel) errors.push(`${relative}: Edge status rel must be ${expected.rel}`);
       }
     }
     for (const status of statuses.filter((item) => item.browser !== 'chrome' && item.browser !== 'edge')) {

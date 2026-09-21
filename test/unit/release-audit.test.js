@@ -82,8 +82,8 @@ test('public site audit requires structured localized statuses even when old tex
 test('public site audit accepts localized Chrome coming-soon and linked Edge statuses with nested markup', (t) => {
   const { auditPublicSite } = require('../../tools/release/audit.js');
   const fixture = copySiteFixture('veilread-nested-status-', t);
-  replaceProductStatuses(fixture, 'zh-CN', `<span class="badge status featured" data-browser="chrome" data-state="coming-soon"><strong>Chrome</strong> <em>即将上线</em></span><a class="badge status featured" data-browser="edge" data-state="available" href="${edgeStoreUrl}" target="_blank" rel="noopener noreferrer"><strong>Edge</strong> <em>已上线</em></a>`);
-  replaceProductStatuses(fixture, 'en', `<span class="badge status featured" data-browser="chrome" data-state="coming-soon"><strong>Chrome</strong> · <em>Coming soon</em></span><a class="badge status featured" data-browser="edge" data-state="available" href="${edgeStoreUrl}" target="_blank" rel="noopener noreferrer"><strong>Edge</strong> · <em>Available on Microsoft Edge Add-ons</em></a>`);
+  replaceProductStatuses(fixture, 'zh-CN', `<span class="badge status featured" data-browser="chrome" data-state="coming-soon"><strong>Chrome</strong> <em>即将上线</em></span><a class="badge status featured" data-browser="edge" data-state="available" href="${edgeStoreUrl}" target="_blank" rel="noreferrer"><strong>Edge</strong> <em>已上线</em></a>`);
+  replaceProductStatuses(fixture, 'en', `<span class="badge status featured" data-browser="chrome" data-state="coming-soon"><strong>Chrome</strong> · <em>Coming soon</em></span><a class="badge status featured" data-browser="edge" data-state="available" href="${edgeStoreUrl}" target="_blank" rel="noreferrer"><strong>Edge</strong> · <em>Available on Microsoft Edge Add-ons</em></a>`);
 
   assert.deepEqual(auditPublicSite(fixture), []);
 });
@@ -100,11 +100,13 @@ test('public site audit requires the canonical Edge store link and keeps Chrome 
     ['text', (html) => html.replace(/>Edge (?:已上线|· Available on Microsoft Edge Add-ons)</, '>Edge incorrect<')],
     ['target', (html) => html.replace('target="_blank"', 'target="_self"')],
     ['rel', (html) => html.replace('rel="noreferrer"', 'rel="noopener"')],
+    ['extra rel token', (html) => html.replace('rel="noreferrer"', 'rel="noopener noreferrer"')],
   ]) {
     for (const locale of ['zh-CN', 'en']) {
       const file = path.join(fixture, 'site', locale, 'index.html');
       fs.writeFileSync(file, mutate(fs.readFileSync(file, 'utf8')));
-      assert.match(auditPublicSite(fixture).join('\n'), new RegExp(`site/${locale}/index\\.html: Edge status .*${label === 'URL' ? 'href' : label}`));
+      const errorPart = label === 'URL' ? 'href' : label.includes('rel') ? 'rel' : label;
+      assert.match(auditPublicSite(fixture).join('\n'), new RegExp(`site/${locale}/index\\.html: Edge status .*${errorPart}`));
       replaceProductStatuses(fixture, locale, expectedStoreStatuses[locale]);
     }
   }
