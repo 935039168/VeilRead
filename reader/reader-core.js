@@ -612,12 +612,12 @@
     btnNext.title = '下一章（Alt+↓）';
     btnToc.title = '目录';
     btnAa.title = '阅读样式';
-    btnClose.title = '隐藏阅读器 (Esc)';
+    btnClose.title = '浮动模式收起，其他模式隐藏';
     btnPrev.setAttribute('aria-label', '上一章');
     btnNext.setAttribute('aria-label', '下一章');
     btnToc.setAttribute('aria-label', '打开目录');
     btnAa.setAttribute('aria-label', '调整阅读样式');
-    btnClose.setAttribute('aria-label', '隐藏阅读器');
+    btnClose.setAttribute('aria-label', '浮动模式收起，其他模式隐藏阅读器');
     bar.append(btnPrev, btnNext, info, btnToc, btnAa, btnClose);
 
     panel.append(grab, scroll, bar, resizeHandleMap.nw, resizeHandleMap.ne,

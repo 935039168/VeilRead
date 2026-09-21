@@ -58,6 +58,15 @@ class FakeElement {
   setPointerCapture() {}
 }
 
+function findElementByClass(root, className) {
+  if (root.classList && root.classList.contains(className)) return root;
+  for (const child of root.children || []) {
+    const found = findElementByClass(child, className);
+    if (found) return found;
+  }
+  return null;
+}
+
 function loadReaderContext(viewport = {}) {
   let now = Date.now();
   class FakeDate extends Date {
@@ -234,16 +243,20 @@ test('mode changes clear incompatible beads and page panels', () => {
 
 test('close follows the active display mode', () => {
   const { reader, events } = createReaderHarness();
+  const closeButton = findElementByClass(reader.el, 'vr-close');
+  assert.ok(closeButton);
+  assert.equal(closeButton.title, '浮动模式收起，其他模式隐藏');
+  assert.equal(closeButton['aria-label'], '浮动模式收起，其他模式隐藏阅读器');
 
   reader.applySettings(settingsFor('float'));
   reader.show();
-  reader.closeForCurrentMode();
+  closeButton.onclick();
   assert.equal(reader.getPresentation(), 'bead');
   assert.equal(events.at(-1).reason, 'collapse');
 
   reader.applySettings(settingsFor('edge'));
   reader.show();
-  reader.closeForCurrentMode();
+  closeButton.onclick();
   assert.equal(reader.getPresentation(), 'hidden');
   assert.equal(events.at(-1).reason, 'close');
 });
