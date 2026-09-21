@@ -18,7 +18,7 @@
 - 最终 PNG：[`assets/generated/`](assets/generated/)
 - 可编辑源文件：[`assets/source/`](assets/source/)
 
-Edge 商店 Logo 的源文件 `assets/source/edge-logo-300.png` 为人工维护的 canonical PNG。运行 `npm run assets` 时会原样复制该文件，不会通过浏览器重新渲染或覆盖其内容。
+Edge 商店 Logo 的源文件 `assets/source/edge-logo-300.png` 为人工维护的 canonical PNG。运行 `npm run assets` 时会原样复制该文件，不会通过浏览器重新渲染或覆盖其内容。需要更换 Logo 时，请有意替换 `assets/source/edge-logo-300.png`，然后运行 `npm run assets`；不要手动编辑 `assets/generated/edge-logo-300.png`。
 
 ## 公开页面
 
