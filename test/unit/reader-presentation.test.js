@@ -232,6 +232,22 @@ test('mode changes clear incompatible beads and page panels', () => {
   assert.equal(reader.getPresentation(), 'hidden');
 });
 
+test('close follows the active display mode', () => {
+  const { reader, events } = createReaderHarness();
+
+  reader.applySettings(settingsFor('float'));
+  reader.show();
+  reader.closeForCurrentMode();
+  assert.equal(reader.getPresentation(), 'bead');
+  assert.equal(events.at(-1).reason, 'collapse');
+
+  reader.applySettings(settingsFor('edge'));
+  reader.show();
+  reader.closeForCurrentMode();
+  assert.equal(reader.getPresentation(), 'hidden');
+  assert.equal(events.at(-1).reason, 'close');
+});
+
 test('showBead and hideBead are idempotent', () => {
   const { reader, events } = createReaderHarness();
   reader.applySettings(settingsFor('float'));

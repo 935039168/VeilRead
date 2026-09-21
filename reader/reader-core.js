@@ -906,6 +906,9 @@
       if (!st.beadAnchor) setBeadAnchor(anchor);
       return showBead(st.beadAnchor, { reason: 'collapse' });
     }
+    function closeForCurrentMode() {
+      return wrap.dataset.mode === 'float' ? collapse() : hide({ reason: 'close' });
+    }
     function toggle(opts2) { return st.presentation === 'panel' ? hide() : show(opts2); }
 
     // ---------- 进度 ----------
@@ -1538,7 +1541,7 @@
 
     btnPrev.onclick = prevChapter;
     btnNext.onclick = nextChapter;
-    btnClose.onclick = hide;
+    btnClose.onclick = closeForCurrentMode;
     btnToc.onclick = () => {
       if (toc.classList.contains('open')) closeOverlays();
       else { closeOverlays(); openToc(); }
@@ -1567,6 +1570,7 @@
       showBead,
       hideBead,
       collapse,
+      closeForCurrentMode,
       toggle,
       isVisible: () => st.presentation === 'panel',
       isCollapsed: () => st.presentation === 'bead',
