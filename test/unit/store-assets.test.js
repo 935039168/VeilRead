@@ -28,6 +28,23 @@ test('store asset manifest contains every required bilingual image at the requir
     assert.deepEqual(readPngSize(fs.readFileSync(file)), { width: asset.width, height: asset.height });
   }
 });
+test('canonical Edge store logo is copied unchanged from its stable source PNG', () => {
+  const { ASSETS } = require('../../tools/release/render-assets.js');
+  const edgeLogo = ASSETS.find((asset) => asset.name === 'edge-logo-300.png');
+  const source = path.join(root, 'store/assets/source/edge-logo-300.png');
+  const generated = path.join(root, 'store/assets/generated/edge-logo-300.png');
+
+  assert.deepEqual(edgeLogo, {
+    name: 'edge-logo-300.png',
+    width: 300,
+    height: 300,
+    source: 'copy',
+    input: 'store/assets/source/edge-logo-300.png',
+  });
+  assert.ok(fs.existsSync(source), 'canonical Edge logo source should exist');
+  assert.deepEqual(readPngSize(fs.readFileSync(source)), { width: 300, height: 300 });
+  assert.deepEqual(fs.readFileSync(generated), fs.readFileSync(source));
+});
 test('asset child process can fetch from the renderer HTTP server', async () => {
   const { runProcess } = require('../../tools/release/render-assets.js');
   const server = http.createServer((_request, response) => response.end('ready'));

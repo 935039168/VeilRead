@@ -91,7 +91,7 @@ async function renderAssets() {
       const output = path.join(outputDir, asset.name);
       fs.rmSync(output, { force: true });
       if (asset.source === 'copy') {
-        fs.copyFileSync(path.join(root, 'icons/icon128.png'), output);
+        fs.copyFileSync(path.join(root, asset.input), output);
       } else {
         const result = await runProcess(browser, [
           '--headless=new', '--disable-gpu', '--hide-scrollbars', '--no-first-run', '--disable-default-apps',

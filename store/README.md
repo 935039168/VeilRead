@@ -18,6 +18,8 @@
 - 最终 PNG：[`assets/generated/`](assets/generated/)
 - 可编辑源文件：[`assets/source/`](assets/source/)
 
+Edge 商店 Logo 的源文件 `assets/source/edge-logo-300.png` 为人工维护的 canonical PNG。运行 `npm run assets` 时会原样复制该文件，不会通过浏览器重新渲染或覆盖其内容。
+
 ## 公开页面
 
 - 产品：https://935039168.github.io/VeilRead/

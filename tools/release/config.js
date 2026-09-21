@@ -1,8 +1,8 @@
 'use strict';
 
 const assetSpecs = [
-  { name: 'chrome-icon-128.png', width: 128, height: 128, source: 'copy' },
-  { name: 'edge-logo-300.png', width: 300, height: 300, source: 'promo', kind: 'logo' },
+  { name: 'chrome-icon-128.png', width: 128, height: 128, source: 'copy', input: 'icons/icon128.png' },
+  { name: 'edge-logo-300.png', width: 300, height: 300, source: 'copy', input: 'store/assets/source/edge-logo-300.png' },
   ...['zh-CN', 'en'].flatMap((locale) => [
     { name: `promo-small-${locale}.png`, width: 440, height: 280, source: 'promo', kind: 'small', locale },
     { name: `promo-large-${locale}.png`, width: 1400, height: 560, source: 'promo', kind: 'large', locale },
