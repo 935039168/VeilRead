@@ -52,6 +52,6 @@ npm run package
 
 ## 7. 审核通过与回滚
 
-1. 审核通过后，把 Pages 首页的 Coming soon 更新为真实 Chrome 与 Edge 商店链接。
+1. Edge Add-ons 已上线并已链接到 Pages 首页；Chrome 审核通过后，才可将 Chrome 的 Coming soon 更新为真实商店链接。
 2. 为发布提交建立带说明的 Git tag，例如 `v1.0.0`，并推送该 tag。
 3. 保留前一商店版本、ZIP 校验值和历史 Git tag；发生回归时提交修复并递增版本，不删除或重写历史 tag。

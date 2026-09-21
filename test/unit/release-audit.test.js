@@ -5,6 +5,11 @@ const fs = require('node:fs');
 const os = require('node:os');
 
 const root = path.resolve(__dirname, '../..');
+const edgeStoreUrl = 'https://microsoftedge.microsoft.com/addons/detail/veilread/ocbckkfiomobcgocladilkofcbbjdjbj';
+const expectedStoreStatuses = {
+  'zh-CN': `<span class="status" data-browser="chrome" data-state="coming-soon">Chrome 即将上线</span><a class="status" data-browser="edge" data-state="available" href="${edgeStoreUrl}" target="_blank" rel="noreferrer">Edge 已上线</a>`,
+  en: `<span class="status" data-browser="chrome" data-state="coming-soon">Chrome · Coming soon</span><a class="status" data-browser="edge" data-state="available" href="${edgeStoreUrl}" target="_blank" rel="noreferrer">Edge · Available on Microsoft Edge Add-ons</a>`,
+};
 
 function copySiteFixture(prefix, t) {
   const fixture = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -16,8 +21,8 @@ function copySiteFixture(prefix, t) {
 function replaceProductStatuses(fixture, locale, markup) {
   const file = path.join(fixture, 'site', locale, 'index.html');
   const original = fs.readFileSync(file, 'utf8');
-  const updated = original.replace(/<span class="status"[^>]*>[\s\S]*?<\/span><span class="status"[^>]*>[\s\S]*?<\/span>/, markup);
-  assert.notEqual(updated, original, `${locale} fixture should replace both product statuses`);
+  const updated = original.replace(/<(?:span|a) class="status"[^>]*data-browser="chrome"[^>]*>[\s\S]*?<\/(?:span|a)><(?:span|a) class="status"[^>]*data-browser="edge"[^>]*>[\s\S]*?<\/(?:span|a)>/, markup);
+  assert.ok(updated !== original || original.includes(markup), `${locale} fixture should replace both product statuses`);
   fs.writeFileSync(file, updated);
 }
 
@@ -74,19 +79,53 @@ test('public site audit requires structured localized statuses even when old tex
     assert.match(output, new RegExp(`site/${locale}/index\\.html: .*${browser}`));
   }
 });
-test('public site audit accepts localized coming-soon statuses with nested markup', (t) => {
+test('public site audit accepts localized Chrome coming-soon and linked Edge statuses with nested markup', (t) => {
   const { auditPublicSite } = require('../../tools/release/audit.js');
   const fixture = copySiteFixture('veilread-nested-status-', t);
-  replaceProductStatuses(fixture, 'zh-CN', '<span class="badge status featured" data-browser="chrome" data-state="coming-soon"><strong>Chrome</strong> <em>即将上线</em></span><span class="badge status featured" data-browser="edge" data-state="coming-soon"><strong>Edge</strong> <em>即将上线</em></span>');
-  replaceProductStatuses(fixture, 'en', '<span class="badge status featured" data-browser="chrome" data-state="coming-soon"><strong>Chrome</strong> · <em>Coming soon</em></span><span class="badge status featured" data-browser="edge" data-state="coming-soon"><strong>Edge</strong> · <em>Coming soon</em></span>');
+  replaceProductStatuses(fixture, 'zh-CN', `<span class="badge status featured" data-browser="chrome" data-state="coming-soon"><strong>Chrome</strong> <em>即将上线</em></span><a class="badge status featured" data-browser="edge" data-state="available" href="${edgeStoreUrl}" target="_blank" rel="noopener noreferrer"><strong>Edge</strong> <em>已上线</em></a>`);
+  replaceProductStatuses(fixture, 'en', `<span class="badge status featured" data-browser="chrome" data-state="coming-soon"><strong>Chrome</strong> · <em>Coming soon</em></span><a class="badge status featured" data-browser="edge" data-state="available" href="${edgeStoreUrl}" target="_blank" rel="noopener noreferrer"><strong>Edge</strong> · <em>Available on Microsoft Edge Add-ons</em></a>`);
 
   assert.deepEqual(auditPublicSite(fixture), []);
+});
+test('public site audit requires the canonical Edge store link and keeps Chrome unlinked', (t) => {
+  const { auditPublicSite } = require('../../tools/release/audit.js');
+  const fixture = copySiteFixture('veilread-edge-store-', t);
+  for (const locale of ['zh-CN', 'en']) replaceProductStatuses(fixture, locale, expectedStoreStatuses[locale]);
+
+  assert.deepEqual(auditPublicSite(fixture), []);
+
+  for (const [label, mutate] of [
+    ['URL', (html) => html.replace(edgeStoreUrl, `${edgeStoreUrl}-wrong`)],
+    ['state', (html) => html.replace('data-browser="edge" data-state="available"', 'data-browser="edge" data-state="coming-soon"')],
+    ['text', (html) => html.replace(/>Edge (?:已上线|· Available on Microsoft Edge Add-ons)</, '>Edge incorrect<')],
+    ['target', (html) => html.replace('target="_blank"', 'target="_self"')],
+    ['rel', (html) => html.replace('rel="noreferrer"', 'rel="noopener"')],
+  ]) {
+    for (const locale of ['zh-CN', 'en']) {
+      const file = path.join(fixture, 'site', locale, 'index.html');
+      fs.writeFileSync(file, mutate(fs.readFileSync(file, 'utf8')));
+      assert.match(auditPublicSite(fixture).join('\n'), new RegExp(`site/${locale}/index\\.html: Edge status .*${label === 'URL' ? 'href' : label}`));
+      replaceProductStatuses(fixture, locale, expectedStoreStatuses[locale]);
+    }
+  }
+
+  for (const [label, mutate] of [
+    ['state', (html) => html.replace('data-browser="chrome" data-state="coming-soon"', 'data-browser="chrome" data-state="available"')],
+    ['link', (html) => html.replace(/<span class="status" data-browser="chrome" data-state="coming-soon">(Chrome(?: 即将上线| · Coming soon))<\/span>/, `<a class="status" data-browser="chrome" data-state="coming-soon" href="${edgeStoreUrl}">$1</a>`)],
+  ]) {
+    for (const locale of ['zh-CN', 'en']) {
+      const file = path.join(fixture, 'site', locale, 'index.html');
+      fs.writeFileSync(file, mutate(fs.readFileSync(file, 'utf8')));
+      assert.match(auditPublicSite(fixture).join('\n'), new RegExp(`site/${locale}/index\\.html: Chrome status .*${label}`));
+      replaceProductStatuses(fixture, locale, expectedStoreStatuses[locale]);
+    }
+  }
 });
 test('public site audit ignores structured statuses in comments, scripts, styles, hidden, and aria-hidden subtrees', (t) => {
   const { auditPublicSite } = require('../../tools/release/audit.js');
   const fixture = copySiteFixture('veilread-hidden-status-', t);
-  replaceProductStatuses(fixture, 'zh-CN', '<span class="status" data-browser="chrome" data-state="coming-soon">Chrome 即将上线</span><span class="status" data-browser="edge" data-state="coming-soon">Edge 即将上线</span><!-- <span class="status" data-browser="chrome" data-state="coming-soon">Chrome 即将上线</span> --><script><span class="status" data-browser="edge" data-state="coming-soon">Edge 即将上线</span></script><style><span class="status" data-browser="chrome" data-state="coming-soon">Chrome 即将上线</span></style>');
-  replaceProductStatuses(fixture, 'en', '<span class="status" data-browser="chrome" data-state="coming-soon">Chrome · Coming soon</span><span class="status" data-browser="edge" data-state="coming-soon">Edge · Coming soon</span><div hidden><span class="status" data-browser="chrome" data-state="coming-soon">Chrome · Coming soon</span></div><div aria-hidden="true"><span class="status" data-browser="edge" data-state="coming-soon">Edge · Coming soon</span></div><div style="display: none"><span class="status" data-browser="chrome" data-state="coming-soon">Chrome · Coming soon</span></div><div style="visibility: hidden"><span class="status" data-browser="edge" data-state="coming-soon">Edge · Coming soon</span></div>');
+  replaceProductStatuses(fixture, 'zh-CN', `${expectedStoreStatuses['zh-CN']}<!-- <span class="status" data-browser="chrome" data-state="coming-soon">Chrome 即将上线</span> --><script><span class="status" data-browser="edge" data-state="coming-soon">Edge 即将上线</span></script><style><span class="status" data-browser="chrome" data-state="coming-soon">Chrome 即将上线</span></style>`);
+  replaceProductStatuses(fixture, 'en', `${expectedStoreStatuses.en}<div hidden><span class="status" data-browser="chrome" data-state="coming-soon">Chrome · Coming soon</span></div><div aria-hidden="true"><span class="status" data-browser="edge" data-state="coming-soon">Edge · Coming soon</span></div><div style="display: none"><span class="status" data-browser="chrome" data-state="coming-soon">Chrome · Coming soon</span></div><div style="visibility: hidden"><span class="status" data-browser="edge" data-state="coming-soon">Edge · Coming soon</span></div>`);
 
   assert.deepEqual(auditPublicSite(fixture), []);
 });
@@ -137,24 +176,24 @@ test('public site audit rejects duplicate browser statuses with mixed states', (
 test('public site audit follows HTML5 semantics for trailing solidus on ordinary spans', (t) => {
   const { auditPublicSite } = require('../../tools/release/audit.js');
   const fixture = copySiteFixture('veilread-solidus-status-', t);
-  replaceProductStatuses(fixture, 'zh-CN', '<span class="status" data-browser="chrome" data-state="coming-soon"/><strong>Chrome</strong> <em>即将上线</em></span><span class="status" data-browser="edge" data-state="coming-soon"/><strong>Edge</strong> <em>即将上线</em></span>');
-  replaceProductStatuses(fixture, 'en', '<span class="status" data-browser="chrome" data-state="coming-soon"/><strong>Chrome</strong> · <em>Coming soon</em></span><span class="status" data-browser="edge" data-state="coming-soon"/><strong>Edge</strong> · <em>Coming soon</em></span>');
+  replaceProductStatuses(fixture, 'zh-CN', `<span class="status" data-browser="chrome" data-state="coming-soon"/><strong>Chrome</strong> <em>即将上线</em></span><a class="status" data-browser="edge" data-state="available" href="${edgeStoreUrl}" target="_blank" rel="noreferrer"/><strong>Edge</strong> <em>已上线</em></a>`);
+  replaceProductStatuses(fixture, 'en', `<span class="status" data-browser="chrome" data-state="coming-soon"/><strong>Chrome</strong> · <em>Coming soon</em></span><a class="status" data-browser="edge" data-state="available" href="${edgeStoreUrl}" target="_blank" rel="noreferrer"/><strong>Edge</strong> · <em>Available on Microsoft Edge Add-ons</em></a>`);
 
   assert.deepEqual(auditPublicSite(fixture), []);
 });
 test('public site audit follows HTML5 recovery semantics for closing br tags', (t) => {
   const { auditPublicSite } = require('../../tools/release/audit.js');
   const fixture = copySiteFixture('veilread-closing-br-status-', t);
-  replaceProductStatuses(fixture, 'zh-CN', '<span class="status" data-browser="chrome" data-state="coming-soon"><strong>Chrome</strong></br><em>即将上线</em></span><span class="status" data-browser="edge" data-state="coming-soon"><strong>Edge</strong></br><em>即将上线</em></span>');
-  replaceProductStatuses(fixture, 'en', '<span class="status" data-browser="chrome" data-state="coming-soon"><strong>Chrome</strong> · </br><em>Coming soon</em></span><span class="status" data-browser="edge" data-state="coming-soon"><strong>Edge</strong> · </br><em>Coming soon</em></span>');
+  replaceProductStatuses(fixture, 'zh-CN', `<span class="status" data-browser="chrome" data-state="coming-soon"><strong>Chrome</strong></br><em>即将上线</em></span><a class="status" data-browser="edge" data-state="available" href="${edgeStoreUrl}" target="_blank" rel="noreferrer"><strong>Edge</strong></br><em>已上线</em></a>`);
+  replaceProductStatuses(fixture, 'en', `<span class="status" data-browser="chrome" data-state="coming-soon"><strong>Chrome</strong> · </br><em>Coming soon</em></span><a class="status" data-browser="edge" data-state="available" href="${edgeStoreUrl}" target="_blank" rel="noreferrer"><strong>Edge</strong> · </br><em>Available on Microsoft Edge Add-ons</em></a>`);
 
   assert.deepEqual(auditPublicSite(fixture), []);
 });
 test('public site audit follows HTML5 comment recovery for abrupt and incorrectly closed comments', (t) => {
   const { auditPublicSite } = require('../../tools/release/audit.js');
   const fixture = copySiteFixture('veilread-comment-recovery-', t);
-  replaceProductStatuses(fixture, 'zh-CN', '<!--><span class="status" data-browser="chrome" data-state="coming-soon">Chrome 即将上线</span><span class="status" data-browser="edge" data-state="coming-soon">Edge 即将上线</span>');
-  replaceProductStatuses(fixture, 'en', '<!-- recovery --!><span class="status" data-browser="chrome" data-state="coming-soon">Chrome · Coming soon</span><span class="status" data-browser="edge" data-state="coming-soon">Edge · Coming soon</span>');
+  replaceProductStatuses(fixture, 'zh-CN', `<!-->${expectedStoreStatuses['zh-CN']}`);
+  replaceProductStatuses(fixture, 'en', `<!-- recovery --!>${expectedStoreStatuses.en}`);
 
   assert.deepEqual(auditPublicSite(fixture), []);
 });
@@ -304,11 +343,13 @@ test('product home selects a localized entry and both languages remain switchabl
   assert.match(gateway, /href="\.\/zh-CN\/"/);
   assert.match(gateway, /href="\.\/en\/"/);
 });
-test('localized product homes publish one structured coming-soon status per browser', () => {
-  for (const locale of ['zh-CN', 'en']) {
+test('localized product homes keep Chrome coming soon and publish the exact Edge store anchor', () => {
+  for (const [locale, chromeText, edgeText] of [
+    ['zh-CN', 'Chrome 即将上线', 'Edge 已上线'],
+    ['en', 'Chrome · Coming soon', 'Edge · Available on Microsoft Edge Add-ons'],
+  ]) {
     const html = fs.readFileSync(path.join(root, 'site', locale, 'index.html'), 'utf8');
-    for (const browser of ['chrome', 'edge']) {
-      assert.ok(html.includes(`class="status" data-browser="${browser}" data-state="coming-soon"`), `${locale} should publish ${browser} coming-soon data attributes`);
-    }
+    assert.ok(html.includes(`<span class="status" data-browser="chrome" data-state="coming-soon">${chromeText}</span>`), `${locale} should keep Chrome as a plain coming-soon status`);
+    assert.ok(html.includes(`<a class="status" data-browser="edge" data-state="available" href="${edgeStoreUrl}" target="_blank" rel="noreferrer">${edgeText}</a>`), `${locale} should publish the exact Edge store anchor`);
   }
 });

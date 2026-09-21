@@ -78,8 +78,12 @@ function visibleStatusElements(html) {
       const classes = (elementAttribute(node, 'class') || '').split(/\s+/).filter(Boolean);
       if (classes.includes('status')) {
         statuses.push({
+          tagName: node.tagName,
           browser: (elementAttribute(node, 'data-browser') || '').trim(),
           state: (elementAttribute(node, 'data-state') || '').trim(),
+          href: (elementAttribute(node, 'href') || '').trim(),
+          target: (elementAttribute(node, 'target') || '').trim(),
+          rel: (elementAttribute(node, 'rel') || '').trim(),
           text: visibleNodeText(node).replace(/\s+/g, ' ').trim(),
         });
       }
@@ -133,27 +137,43 @@ function auditPublicSite(root) {
     }
   }
 
+  const edgeStoreUrl = 'https://microsoftedge.microsoft.com/addons/detail/veilread/ocbckkfiomobcgocladilkofcbbjdjbj';
   const storeStatuses = [
-    ['site/zh-CN/index.html', { chrome: 'Chrome 即将上线', edge: 'Edge 即将上线' }],
-    ['site/en/index.html', { chrome: 'Chrome · Coming soon', edge: 'Edge · Coming soon' }],
+    ['site/zh-CN/index.html', {
+      chrome: { state: 'coming-soon', text: 'Chrome 即将上线', tagName: 'span' },
+      edge: { state: 'available', text: 'Edge 已上线', tagName: 'a', href: edgeStoreUrl, target: '_blank', rel: 'noreferrer' },
+    }],
+    ['site/en/index.html', {
+      chrome: { state: 'coming-soon', text: 'Chrome · Coming soon', tagName: 'span' },
+      edge: { state: 'available', text: 'Edge · Available on Microsoft Edge Add-ons', tagName: 'a', href: edgeStoreUrl, target: '_blank', rel: 'noreferrer' },
+    }],
   ];
-  for (const [relative, expectedTexts] of storeStatuses) {
+  for (const [relative, expectedStatuses] of storeStatuses) {
     const file = path.join(root, relative);
     if (!fs.existsSync(file)) continue;
     const statuses = visibleStatusElements(fs.readFileSync(file, 'utf8'));
     for (const browser of ['chrome', 'edge']) {
       const label = browser[0].toUpperCase() + browser.slice(1);
+      const expected = expectedStatuses[browser];
       const matches = statuses.filter((status) => status.browser === browser);
       if (matches.length === 0) {
-        errors.push(`${relative}: missing ${label} status ${expectedTexts[browser]}`);
+        errors.push(`${relative}: missing ${label} status ${expected.text}`);
         continue;
       }
       if (matches.length > 1) {
         errors.push(`${relative}: duplicate ${label} status elements`);
         continue;
       }
-      if (matches[0].state !== 'coming-soon') errors.push(`${relative}: ${label} status data-state must be coming-soon`);
-      if (matches[0].text !== expectedTexts[browser]) errors.push(`${relative}: ${label} status text must be ${expectedTexts[browser]}`);
+      const status = matches[0];
+      if (status.state !== expected.state) errors.push(`${relative}: ${label} status data-state must be ${expected.state}`);
+      if (status.text !== expected.text) errors.push(`${relative}: ${label} status text must be ${expected.text}`);
+      if (status.tagName !== expected.tagName) errors.push(`${relative}: ${label} status element must be ${expected.tagName}`);
+      if (browser === 'chrome' && status.href) errors.push(`${relative}: Chrome status must not include a link`);
+      if (browser === 'edge') {
+        if (status.href !== expected.href) errors.push(`${relative}: Edge status href must be ${expected.href}`);
+        if (status.target !== expected.target) errors.push(`${relative}: Edge status target must be ${expected.target}`);
+        if (!status.rel.split(/\s+/).includes(expected.rel)) errors.push(`${relative}: Edge status rel must include ${expected.rel}`);
+      }
     }
     for (const status of statuses.filter((item) => item.browser !== 'chrome' && item.browser !== 'edge')) {
       errors.push(`${relative}: status element has invalid data-browser ${status.browser || '(missing)'}`);
