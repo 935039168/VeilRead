@@ -15,6 +15,19 @@
 2. 商店每次上传都必须使用高于已发布版本的版本号。
 3. 检查中英文 listing、隐私政策、权限理由和审核说明是否仍与功能一致。
 
+### 每次发版的修改清单
+
+| 项目 | 是否每次都改 | 修改位置 | 说明 |
+| --- | --- | --- | --- |
+| 扩展版本号 | 是 | `manifest.json`、`package.json` | 两处必须完全相同，并且高于 Chrome/Edge 商店中已发布的版本；`npm run package` 会据此生成 `dist/VeilRead-v<版本>.zip`。 |
+| 商店更新说明 | 是 | Chrome Web Store、Microsoft Edge Add-ons 的本次提交表单 | 用中文和英文简要说明用户可见的改动、修复和已知限制；不要把账号凭据写入仓库。 |
+| Git 标签 | 是（审核通过后） | Git 仓库 | 为实际发布的提交建立 `v<版本>` 标签并推送，例如 `v1.0.1`。 |
+| 商店 listing 文案、隐私政策、权限理由、审核说明 | 仅功能、数据处理、权限或支持方式变化时 | `store/listing/`、`store/compliance/`、`store/review/`、`site/privacy/`、`site/support/` | 内容必须与 Manifest 权限和实际行为一致；纯内部重构通常无需改。 |
+| 商店截图、宣传图、Logo | 仅界面、品牌或商店展示内容变化时 | `store/assets/` | 先运行 `npm run assets`，再人工检查尺寸、语言和视觉是否仍准确。 |
+| 产品网站的商店状态/链接 | 仅商店状态或链接变化时 | `site/zh-CN/index.html`、`site/en/index.html`、`tools/release/audit.js` | 当前 Edge 已上线；Chrome 审核通过后，需同时把双语页面和审计预期从“即将上线”改为正式链接。 |
+
+> 不需要每次修改：扩展 ID、图标、权限、`minimum_chrome_version`、书库内容和 `books/`。只有相关功能确实变化时才调整它们；权限或最低版本变动会影响商店审核，需同步更新说明资料。
+
 ## 3. 自动验证与商店素材
 
 ```text
