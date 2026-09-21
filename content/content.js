@@ -52,6 +52,10 @@
     return !!settings && readerSession.contentRenderMode(settings) !== null;
   }
 
+  function edgePanelTriggerEnabled() {
+    return pageReaderEnabled() && settings.display.mode === 'edge';
+  }
+
   function reportReaderUi(event) {
     return send('readerUi.event', { event }).catch(() => null);
   }
@@ -359,7 +363,7 @@
   }
 
   document.addEventListener('mousemove', (e) => {
-    if (!settings || !reader || !pageReaderEnabled()) return;
+    if (!settings || !reader || !edgePanelTriggerEnabled()) return;
     const t = settings.trigger;
     if (!t.hover || emergency || reader.isVisible() || reader.isCollapsed()) {
       if (showTimer) { clearTimeout(showTimer); showTimer = null; }
@@ -381,7 +385,7 @@
   // ---------- 托盘 ----------
   function buildTray() {
     if (trayEl) { trayEl.remove(); trayEl = null; }
-    if (!settings || !settings.trigger.tray || !pageReaderEnabled()) return;
+    if (!settings || !settings.trigger.tray || !edgePanelTriggerEnabled()) return;
     trayEl = document.createElement('div');
     const t = settings.trigger;
     Object.assign(trayEl.style, {
@@ -645,7 +649,11 @@
     store.onSettingsChanged((s) => {
       const previousMode = settings && settings.display && settings.display.mode;
       const nextMode = s && s.display && s.display.mode;
-      if (previousMode !== nextMode) cancelPendingOpen();
+      if (previousMode !== nextMode) {
+        cancelPendingOpen();
+        edgeTrigger.onResize();
+        if (showTimer) { clearTimeout(showTimer); showTimer = null; }
+      }
       settings = s;
       hideDelay.cancel();
       reader.applySettings(s);

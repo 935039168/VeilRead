@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const ui = require('../../lib/reader-session.js');
 
-function makeSettings(mode) {
+function makeSettings(mode, showDelay = 0) {
   return {
     display: {
       mode, edge: 'right', width: 440,
@@ -12,7 +12,7 @@ function makeSettings(mode) {
     },
     trigger: {
       hover: true, edge: 'right', thickness: 10, vLimit: 0.15,
-      showDelay: 0, autoHide: true, autoHideMode: 'hide', autoHideDelay: 0,
+      showDelay, autoHide: true, autoHideMode: 'hide', autoHideDelay: 0,
       tray: true, trayEdge: 'right', trayPos: 0.5,
     },
     reading: { scrollStep: 0.9 }, sites: [],
@@ -34,9 +34,9 @@ class FakeElement {
 
 async function loadContentHarness({
   mode = 'float', readySnapshot = null, deferInitialReady = false, deferCurrent = false,
-  deferBookOpen = false, deferFetch = false,
+  deferBookOpen = false, deferFetch = false, showDelay = 0,
 } = {}) {
-  let currentSettings = makeSettings(mode);
+  let currentSettings = makeSettings(mode, showDelay);
   let settingsReads = 0;
   let currentReads = 0;
   let settingsListener = null;
@@ -139,7 +139,16 @@ async function loadContentHarness({
     readerUtils: {
       isFloatGeometryPatch: () => false,
       createCancelableDelay: () => ({ cancel() {}, schedule(callback) { callback(); } }),
-      createEdgeTriggerState: () => ({ observe: () => false, onResize() {} }),
+      createEdgeTriggerState: () => {
+        let armed = true;
+        return {
+          observe(inHotZone) {
+            if (!inHotZone) armed = true;
+            return armed && inHotZone;
+          },
+          onResize() { armed = false; },
+        };
+      },
       getPanelAutoHideAction: () => null,
     },
     createReader(options) { readerHost = options.host; return reader; },
@@ -169,6 +178,10 @@ async function loadContentHarness({
     settingsReads: () => settingsReads, currentReads: () => currentReads,
     setSettings(nextMode) { currentSettings = makeSettings(nextMode); },
     emitSettings(nextMode) { currentSettings = makeSettings(nextMode); settingsListener(structuredClone(currentSettings)); },
+    async mousemove(x, y) {
+      for (const listener of documentListeners.mousemove || []) listener({ clientX: x, clientY: y });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    },
     async message(message) {
       return new Promise((resolve) => {
         const async = messageListener(message, {}, resolve);
@@ -273,6 +286,26 @@ test('edge and sidebar snapshots never show a floating bead', async () => {
     assert.equal(harness.reader.getPresentation(), 'hidden');
     assert.equal(harness.calls.some(([name]) => name === 'showBead'), false);
   }
+});
+
+test('only edge mode opens the reader from the browser side hot zone', async () => {
+  const float = await loadContentHarness({ mode: 'float' });
+  await float.mousemove(1199, 450);
+  assert.equal(float.calls.some(([name]) => name === 'show'), false);
+
+  const edge = await loadContentHarness({ mode: 'edge' });
+  await edge.mousemove(1199, 450);
+  assert.equal(edge.calls.some(([name]) => name === 'show'), true);
+});
+
+test('a mode change cancels a delayed edge hot-zone opening', async () => {
+  const harness = await loadContentHarness({ mode: 'edge', showDelay: 50 });
+  await harness.mousemove(1199, 450);
+  harness.emitSettings('float');
+  await new Promise((resolve) => setTimeout(resolve, 70));
+
+  assert.equal(harness.reader.el.dataset.mode, 'float');
+  assert.equal(harness.calls.some(([name]) => name === 'show'), false);
 });
 
 test('visibility changes hide only a full panel and preserve a synchronized bead', async () => {
