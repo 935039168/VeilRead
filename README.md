@@ -200,9 +200,10 @@ node tools/serve.js         # 本地静态服务器（默认 8642）
 常用发布命令：
 
 ```text
+npm run release:sync-version
 npm run release:check
 npm run assets
 npm run package
 ```
 
-`npm run package` 生成 Chrome 与 Edge 共用的 `dist/VeilRead-v1.0.0.zip`；`dist/` 是本地产物，不提交到仓库。
+每次发版只手动修改 `manifest.json` 的 `version`，然后运行 `npm run release:sync-version`，自动同步 `package.json` 和 `package-lock.json` 的根版本元数据。`npm run release:check` 只检查版本是否漂移，不会修改文件。`npm run package` 生成 Chrome 与 Edge 共用的 `dist/VeilRead-v<版本>.zip`；`dist/` 是本地产物，不提交到仓库。

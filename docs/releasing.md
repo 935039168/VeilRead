@@ -11,15 +11,16 @@
 
 ## 2. 更新版本与发布说明
 
-1. 同时修改 `manifest.json` 和 `package.json` 的版本，保持 `MAJOR.MINOR.PATCH` 一致。
-2. 商店每次上传都必须使用高于已发布版本的版本号。
-3. 检查中英文 listing、隐私政策、权限理由和审核说明是否仍与功能一致。
+1. 只手动修改 `manifest.json` 的 `version`，使用 `MAJOR.MINOR.PATCH` 格式。
+2. 运行 `npm run release:sync-version`；该命令会把版本同步到 `package.json`，并更新 `package-lock.json` 的两个根元数据版本字段。提交本次修改生成的全部版本元数据。
+3. 商店每次上传都必须使用高于已发布版本的版本号。
+4. 检查中英文 listing、隐私政策、权限理由和审核说明是否仍与功能一致。
 
 ### 每次发版的修改清单
 
 | 项目 | 是否每次都改 | 修改位置 | 说明 |
 | --- | --- | --- | --- |
-| 扩展版本号 | 是 | `manifest.json`、`package.json` | 两处必须完全相同，并且高于 Chrome/Edge 商店中已发布的版本；`npm run package` 会据此生成 `dist/VeilRead-v<版本>.zip`。 |
+| 扩展版本号 | 是 | 手动修改 `manifest.json` 的 `version`，再运行 `npm run release:sync-version` | 同步命令会更新 `package.json` 和 `package-lock.json` 的两个根元数据版本字段；提交全部生成的版本元数据。版本必须高于 Chrome/Edge 商店中已发布的版本；`npm run package` 会据此生成 `dist/VeilRead-v<版本>.zip`。 |
 | 商店更新说明 | 是 | Chrome Web Store、Microsoft Edge Add-ons 的本次提交表单 | 用中文和英文简要说明用户可见的改动、修复和已知限制；不要把账号凭据写入仓库。 |
 | Git 标签 | 是（审核通过后） | Git 仓库 | 为实际发布的提交建立 `v<版本>` 标签并推送，例如 `v1.0.1`。 |
 | 商店 listing 文案、隐私政策、权限理由、审核说明 | 仅功能、数据处理、权限或支持方式变化时 | `store/listing/`、`store/compliance/`、`store/review/`、`site/privacy/`、`site/support/` | 内容必须与 Manifest 权限和实际行为一致；纯内部重构通常无需改。 |
@@ -31,17 +32,18 @@
 ## 3. 自动验证与商店素材
 
 ```text
+npm run release:sync-version
 npm run release:check
 npm run assets
 npm run release:check
 npm run package
 ```
 
-先运行审计，再生成并人工检查全部 PNG，随后重新审计并生成发布包。`npm run package` 会把 Manifest 版本写入文件名，复查 ZIP 白名单，并输出 SHA-256。
+先同步版本元数据，再运行审计。`npm run release:check` 只检测版本漂移，不会修改文件。随后生成并人工检查全部 PNG，重新审计并生成发布包。`npm run package` 会把 Manifest 版本写入文件名，复查 ZIP 白名单，并输出 SHA-256。
 
 ## 4. Chrome 与 Edge 侧载验收
 
-1. 解压 `dist/VeilRead-v1.0.0.zip` 到独立临时目录。
+1. 解压 `dist/VeilRead-v<版本>.zip` 到独立临时目录。
 2. 在 Chrome 的扩展管理页打开开发者模式并“加载已解压的扩展程序”。
 3. 在 Edge 的扩展管理页打开开发人员模式并加载同一目录。
 4. 两款浏览器分别完整执行 [手工验收清单](manual-acceptance.md)。
