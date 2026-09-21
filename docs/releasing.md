@@ -52,12 +52,11 @@ npm run package
 
 ## 5. 部署并检查 GitHub Pages
 
-当前仓库为 Private，当前计划不支持其 Pages，首次创建 Pages site 的 API 请求返回 422，因此站点当前为 404。仓库内的 workflow 使用默认 `GITHUB_TOKEN`，只负责部署已经启用的 Pages；它不能首次启用 Pages，也不得保存 PAT。
+GitHub Pages 已由 workflow 部署 `site/`。发布包含公开网站修改时，等待对应 workflow 成功完成后，打开产品页与双语页面确认实际可访问。
 
-1. 仓库所有者选择将仓库改为 Public，或升级到支持 Private Pages 的计划。
-2. 满足计划条件后，由维护者在 GitHub 仓库 Pages 设置中把 Source 设为 GitHub Actions；也可使用仓库外的维护者 API 凭据做这一次启用，但不得把令牌写入仓库或 workflow。
-3. 重新运行 Pages workflow，确认它成功部署 `site/`。前置条件完成前，workflow 失败和 URL 404 不能报告为已部署。
-4. 打开产品、双语隐私、双语支持和权利页面，检查中英文互链与 Issues 地址。
+1. 推送包含 `site/` 或发布资料变更的提交；确认 GitHub Actions 中 Pages workflow 成功完成。
+2. 分别打开产品页、双语隐私、双语支持和权利页面，检查 HTTP 状态、语言互链与 Issues 地址。
+3. 如果 Chrome 商店状态变化，同时核对双语首页的商店链接与 `tools/release/audit.js` 中的预期保持一致。
 
 ## 6. 人工提交两家商店
 

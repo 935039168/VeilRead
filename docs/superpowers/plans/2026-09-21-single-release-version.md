@@ -4,7 +4,7 @@
 
 **Goal:** Make `manifest.json` the only manually maintained release version and repair release-package tests so ZIP staging checks use the actual manifest version.
 
-**Architecture:** Browser stores consume the Manifest, so `manifest.json.version` is the sole release source. Remove the redundant package version and its audit equality rule, then derive test ZIP paths from the fixture Manifest instead of a historic literal. Replace user-facing fixed ZIP examples with `<版本>` placeholders.
+**Architecture:** Browser stores consume the Manifest, so `manifest.json.version` is the sole manual release source. `npm run release:sync-version` generates matching npm metadata in `package.json` and `package-lock.json`; release audit rejects metadata drift without writing files. Package tests derive ZIP paths from the fixture Manifest instead of a historic literal, while user-facing ZIP examples use `<版本>` placeholders.
 
 **Tech Stack:** Manifest V3 JSON, Node.js built-in test runner, Node.js release tools.
 
@@ -16,30 +16,31 @@
 - Modify: `test/unit/release-package.test.js`
 - Modify: `test/unit/release-audit.test.js`
 - Modify: `tools/release/audit.js`
+- Create: `tools/release/sync-version.js`
 - Modify: `package.json`
 - Modify: `package-lock.json`
 
-- [ ] **Step 1: Write failing regression tests**
+- [x] **Step 1: Write failing regression tests**
 
-Replace both literal `VeilRead-v1.0.0.zip` fixture paths in `test/unit/release-package.test.js` with a helper that reads `fixture/manifest.json` and returns `VeilRead-v${manifest.version}.zip`. Add an audit test that removes `package.json.version` from a copied release fixture and asserts `auditRepository(fixture)` has no version-related error.
+Replace both literal `VeilRead-v1.0.0.zip` fixture paths in `test/unit/release-package.test.js` with a helper that reads `fixture/manifest.json` and returns `VeilRead-v${manifest.version}.zip`. Add an audit test that proves version metadata drift is rejected, plus a sync-utility test that updates package and lock metadata from a fixture Manifest.
 
-- [ ] **Step 2: Run focused tests and verify the staging regression fails on the current version `1.0.1`**
-
-Run: `node --test test/unit/release-package.test.js test/unit/release-audit.test.js`
-
-Expected: the repaired staging test fails before package code is adjusted only if a stale literal remains; the package-version-optional audit test fails because the audit still reads and compares `package.json.version`.
-
-- [ ] **Step 3: Make Manifest the sole manual version source**
-
-Remove the root `version` fields from `package.json` and `package-lock.json`. In `tools/release/audit.js`, read only `manifest.json`, keep its `MAJOR.MINOR.PATCH` validation, and remove the package-version comparison. Preserve the user-provided `manifest.json` version `1.0.1`.
-
-- [ ] **Step 4: Verify focused tests pass**
+- [x] **Step 2: Run focused tests and verify the staging regression fails on the current version `1.0.1`**
 
 Run: `node --test test/unit/release-package.test.js test/unit/release-audit.test.js`
 
-Expected: PASS; staging tests corrupt the real temporary ZIP path for any manifest version, while a package file with no version remains release-valid.
+Expected: the repaired staging test catches a staged ZIP mismatch at `1.0.1`; the sync-utility test fails before the utility exists.
 
-- [ ] **Step 5: Commit implementation**
+- [x] **Step 3: Make Manifest the sole manual version source**
+
+Add `npm run release:sync-version`, backed by a focused utility that reads `manifest.json.version` and updates `package.json.version`, `package-lock.json.version`, and `package-lock.json.packages[""].version`. Keep the audit equality checks so release validation rejects metadata drift. Preserve the user-provided `manifest.json` version `1.0.1`.
+
+- [x] **Step 4: Verify focused tests pass**
+
+Run: `node --test test/unit/release-package.test.js test/unit/release-audit.test.js`
+
+Expected: PASS; staging tests corrupt the real temporary ZIP path for any manifest version, the synchronizer repairs generated metadata, and audit rejects manual drift.
+
+- [x] **Step 5: Commit implementation**
 
 Run: `git add manifest.json package.json package-lock.json tools/release/audit.js test/unit/release-package.test.js test/unit/release-audit.test.js; git commit -m "refactor: use manifest as release version source"`
 
@@ -50,16 +51,20 @@ Run: `git add manifest.json package.json package-lock.json tools/release/audit.j
 - Modify: `docs/releasing.md`
 - Modify: `docs/manual-acceptance.md`
 
-- [ ] **Step 1: Replace fixed ZIP-version examples with placeholders**
+- [x] **Step 1: Replace fixed ZIP-version examples with placeholders**
 
-Use `dist/VeilRead-v<版本>.zip` where instructions refer to the current release package. Change the release checklist to say only `manifest.json` is manually updated, while `package.json` intentionally has no release version.
+Use `dist/VeilRead-v<版本>.zip` where instructions refer to the current release package. Change the release checklist to say only `manifest.json` is manually updated, while package metadata is generated by `npm run release:sync-version` and committed.
 
-- [ ] **Step 2: Run release verification**
+- [x] **Step 2: Run release verification**
 
 Run: `npm run release:check && npm run package`
 
 Expected: PASS; the generated ZIP filename contains `1.0.1` and no runtime/development file audit fails.
 
-- [ ] **Step 3: Commit documentation**
+- [x] **Step 3: Commit documentation**
+
+### Review follow-up: Preserve npm package metadata
+
+`npm pack --dry-run` requires a package version even though the extension release reads the Manifest. The final design therefore keeps `manifest.json` as the only manual input and adds `npm run release:sync-version` to generate matching `package.json` and root `package-lock.json` metadata. `release:check` rejects drift without modifying files.
 
 Run: `git add README.md docs/releasing.md docs/manual-acceptance.md; git commit -m "docs: document manifest-only release versioning"`

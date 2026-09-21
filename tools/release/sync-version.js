@@ -9,7 +9,10 @@ function readJson(file) {
 }
 
 function writeJson(file, value) {
-  fs.writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`);
+  const current = fs.readFileSync(file, 'utf8');
+  const newline = current.includes('\r\n') ? '\r\n' : '\n';
+  const next = `${JSON.stringify(value, null, 2).replace(/\n/g, newline)}${newline}`;
+  if (current !== next) fs.writeFileSync(file, next);
 }
 
 function syncReleaseVersion(root) {

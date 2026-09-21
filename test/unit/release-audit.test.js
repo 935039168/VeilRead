@@ -64,6 +64,27 @@ test('release version sync copies the manifest version to npm package metadata',
   assert.equal(synchronizedLock.packages[''].version, '7.8.9');
 });
 
+test('release version sync does not rewrite already synchronized metadata', (t) => {
+  const { syncReleaseVersion } = require('../../tools/release/sync-version.js');
+  const fixture = copyReleaseFixture('veilread-version-sync-idempotent-', t);
+  const files = ['package.json', 'package-lock.json'];
+  const before = files.map((relative) => fs.readFileSync(path.join(fixture, relative)));
+  const targets = new Set(files.map((relative) => path.join(fixture, relative)));
+  const originalWrite = fs.writeFileSync;
+  fs.writeFileSync = function (file, ...args) {
+    if (targets.has(path.resolve(String(file)))) throw new Error('synchronized metadata must not be rewritten');
+    return originalWrite.call(this, file, ...args);
+  };
+  t.after(() => { fs.writeFileSync = originalWrite; });
+
+  assert.doesNotThrow(() => syncReleaseVersion(fixture));
+
+  assert.deepEqual(
+    files.map((relative) => fs.readFileSync(path.join(fixture, relative))),
+    before,
+  );
+});
+
 test('manifest metadata is localized, validates SemVer, and matches generated package metadata', (t) => {
   const { auditManifestAndLocales } = require('../../tools/release/audit.js');
   const fixture = copyReleaseFixture('veilread-manifest-audit-', t);
@@ -364,7 +385,7 @@ test('release documentation links every compliance resource and command', () => 
     assert.ok(releasing.includes(text), `release guide should contain ${text}`);
   }
 });
-test('documentation separates runtime dependencies from release tooling and states the Pages activation constraint', () => {
+test('documentation separates runtime dependencies from release tooling and describes deployed Pages validation', () => {
   const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
   for (const text of ['扩展运行时纯原生 JS', '无运行时依赖', '无构建步骤', 'Node.js 20', 'npm ci', 'parse5']) {
     assert.ok(readme.includes(text), `README should contain ${text}`);
@@ -381,9 +402,10 @@ test('documentation separates runtime dependencies from release tooling and stat
   }
   assert.doesNotMatch(design, /发布并验证/);
   assert.doesNotMatch(plan, /publish the complete bilingual GitHub Pages site/i);
-  for (const text of ['Private', '422', 'Public', 'PAT']) {
+  for (const text of ['GitHub Pages 已由 workflow 部署', 'GitHub Actions', 'HTTP 状态', 'tools/release/audit.js']) {
     assert.ok(releasing.includes(text), `release guide should contain ${text}`);
   }
+  assert.doesNotMatch(releasing, /当前仓库为 Private|站点当前为 404/);
 });
 test('workflow configuration verifies releases and deploys only the static site', () => {
   const ci = fs.readFileSync(path.join(root, '.github/workflows/ci.yml'), 'utf8');
